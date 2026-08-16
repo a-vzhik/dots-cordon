@@ -44,17 +44,22 @@ Two dots belonging to the **same player** are **connected** if they occupy adjac
 Connected dots form a **group**. Groups can grow as new dots are placed.
 
 ```
-Connected (8-direction):
+Connected — neighbors (share an edge or corner):
 
-  •       • . •       •
-  •         •       . • .
-            •
+  •—•          •   •          •
+               |   |         /
+               •   •        •
 
-Not connected:
+Not connected — empty cells between them:
 
-  • . •       •   •
-              (gap of 2 on a row)
+  •   •        • . •
+  ↑              ↑
+  same row,      same row,
+  2 gaps apart   1 gap apart
+  (too far)      (still too far)
 ```
+
+Two dots are connected only if they sit on **neighboring** intersections. Dots on the same row or column with empty cells between them are **not** connected, no matter how “lined up” they look.
 
 ---
 
