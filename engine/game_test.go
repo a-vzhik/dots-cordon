@@ -58,3 +58,49 @@ func TestGameFieldTransformFiltersDots(t *testing.T) {
 		assert.Equal(t, want, field)
 	})
 }
+
+func TestGameFieldFind(t *testing.T) {
+	tests := []struct {
+		name   string
+		filter func(Dot) bool
+		want   []Dot
+	}{
+		{
+			name: "nothing",
+			filter: func(Dot) bool {
+				return false
+			},
+			want: []Dot{},
+		},
+		{
+			name: "one dot",
+			filter: func(dot Dot) bool {
+				return dot.Row == 1 && dot.Col == 2
+			},
+			want: []Dot{
+				{Col: 2, Row: 1},
+			},
+		},
+		{
+			name: "multiple dots",
+			filter: func(dot Dot) bool {
+				return dot.Row == 1
+			},
+			want: []Dot{
+				{Col: 0, Row: 1},
+				{Col: 1, Row: 1},
+				{Col: 2, Row: 1},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			field := NewGameField(3, 2)
+
+			got := field.Find(tt.filter)
+
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
