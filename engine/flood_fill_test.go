@@ -355,6 +355,87 @@ func TestGameRunFloodFillHandlesTwoRectanglesSharingCorner(t *testing.T) {
 	)
 }
 
+func TestGameRunFloodFillHandlesTwoDiamondsSharingCorner(t *testing.T) {
+	// Grid (zero-based row and column indices):
+	//
+	//       c0 c1 c2 c3 c4
+	// r0    R  R  B  R  R
+	// r1    R  B  R  B  R
+	// r2    R  R  B  R  R
+	// r3    R  B  R  B  R
+	// r4    R  R  B  R  R
+	//
+	// R = red dot, B = blue dot. The blue diamonds enclose the red dots at
+	// (1,2) and (3,2), sharing the blue corner at (2,2). Every other red dot
+	// is outside both diamonds.
+	const (
+		redPlayerIdx engine.PlayerIndex = iota
+		bluePlayerIdx
+	)
+	type position struct {
+		row uint8
+		col uint8
+	}
+
+	field := engine.NewGameField(5, 5)
+	for _, position := range []position{
+		{row: 0, col: 2},
+		{row: 1, col: 1},
+		{row: 1, col: 3},
+		{row: 2, col: 2},
+		{row: 3, col: 1},
+		{row: 3, col: 3},
+		{row: 4, col: 2},
+	} {
+		field.Dots[position.row][position.col] = field.Dots[position.row][position.col].WithOwner(bluePlayerIdx)
+	}
+
+	enclosedRedDots := make([]engine.Dot, 0, 2)
+	for _, position := range []position{
+		{row: 1, col: 2},
+		{row: 3, col: 2},
+	} {
+		dot := field.Dots[position.row][position.col].WithOwner(redPlayerIdx)
+		field.Dots[position.row][position.col] = dot
+		enclosedRedDots = append(enclosedRedDots, dot)
+	}
+
+	freeRedDots := make([]engine.Dot, 0)
+	for rowIdx, row := range field.Dots {
+		for colIdx, dot := range row {
+			if dot.Owned {
+				continue
+			}
+
+			redDot := dot.WithOwner(redPlayerIdx)
+			field.Dots[rowIdx][colIdx] = redDot
+			freeRedDots = append(freeRedDots, redDot)
+		}
+	}
+
+	game := engine.NewGame(field, []*engine.Player{
+		{Color: engine.RedColor},
+		{Color: engine.BlueColor},
+	})
+	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
+	redDots := field.Find(func(dot engine.Dot) bool {
+		return dot.Owned && dot.Owner == redPlayerIdx
+	})
+
+	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+
+	assert.True(
+		t,
+		allDotsHaveFloodFillState(enclosedRedDots, floodFillGrid, engine.FloodFillCellStateBlocked),
+		"expected the red dot inside each diamond to be blocked",
+	)
+	assert.True(
+		t,
+		allDotsHaveFloodFillState(freeRedDots, floodFillGrid, engine.FloodFillCellStateEscaped),
+		"expected all red dots outside the diamonds to be escaped",
+	)
+}
+
 func TestGameRunFloodFillEscapesAllRedDotsThroughBorderHatch(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//

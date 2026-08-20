@@ -2,14 +2,32 @@
 package engine
 
 import (
+	"cmp"
 	"fmt"
-	"log"
+	"log/slog"
+	"slices"
 )
 
 type GameField struct {
 	Width  uint8
 	Height uint8
 	Dots   [][]Dot
+}
+
+type CordonIndexKey struct {
+	Row uint8
+	Col uint8
+}
+
+type Cordon struct {
+	Index   map[CordonIndexKey]any
+	Ordered []CordonIndexKey
+}
+
+func NewCordon() *Cordon {
+	return &Cordon{
+		Index: make(map[CordonIndexKey]any),
+	}
 }
 
 func NewGameField(width uint8, height uint8) *GameField {
@@ -103,8 +121,6 @@ func NewGame(gameField *GameField, players []*Player) *Game {
 }
 
 func (g *Game) HasDotEscaped(floodFillGrid [][]FloodFillCellState, defenderIdx PlayerIndex, currRowIdx uint8, currColIdx uint8) bool {
-	log.Printf("CanEscape [%d, %d]: %d\n", currRowIdx, currColIdx, floodFillGrid[currRowIdx][currColIdx])
-
 	knownState := floodFillGrid[currRowIdx][currColIdx]
 	switch knownState {
 	case FloodFillCellStateBlocked:
@@ -116,6 +132,10 @@ func (g *Game) HasDotEscaped(floodFillGrid [][]FloodFillCellState, defenderIdx P
 	}
 
 	dot := g.GameField.Dots[currRowIdx][currColIdx]
+	if dot.Killed {
+		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateBlocked
+		return false
+	}
 	if !dot.Owned {
 		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
 	}
@@ -124,12 +144,12 @@ func (g *Game) HasDotEscaped(floodFillGrid [][]FloodFillCellState, defenderIdx P
 	}
 	if dot.Owned && dot.Owner != defenderIdx {
 		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateBlocked
-		log.Printf("found the other player: %d, %d", currRowIdx, currColIdx)
+		slog.Debug(fmt.Sprintf("found the other player: %d, %d", currRowIdx, currColIdx))
 		return false
 	}
 
 	if currColIdx == 0 || currRowIdx == 0 || currRowIdx == g.GameField.Height-1 || currColIdx == g.GameField.Width-1 {
-		log.Printf("reached the border: %d, %d", currRowIdx, currColIdx)
+		slog.Debug(fmt.Sprintf("reached the border: %d, %d", currRowIdx, currColIdx))
 		return true
 	}
 
@@ -166,7 +186,7 @@ func (g *Game) HasDotEscaped(floodFillGrid [][]FloodFillCellState, defenderIdx P
 }
 
 func setEscapeCandidatesToState(floodFillGrid [][]FloodFillCellState, state FloodFillCellState) {
-	log.Printf("Marking all escape candidate with %d: %+v\n", state, floodFillGrid)
+	slog.Debug(fmt.Sprintf("Marking all escape candidate with %d: %+v\n", state, floodFillGrid))
 	for i := range floodFillGrid {
 		for j := range floodFillGrid {
 			if floodFillGrid[i][j] != FloodFillCellStateEscapeCandidate {
@@ -199,12 +219,183 @@ func (g *Game) RunFloodFill(floodFillGrid [][]FloodFillCellState, defenderDots [
 	// Match BLOCKED cells to offenderDots => they are cordons
 
 	for _, dot := range defenderDots {
-		log.Printf("FloodFill dot [%d, %d]...", dot.Row, dot.Col)
+		slog.Debug(fmt.Sprintf("FloodFill dot [%d, %d]...", dot.Row, dot.Col))
 		if g.HasDotEscaped(floodFillGrid, defenderIdx, dot.Row, dot.Col) {
 			setEscapeCandidatesToState(floodFillGrid, FloodFillCellStateEscaped)
 		} else {
 			setEscapeCandidatesToState(floodFillGrid, FloodFillCellStateBlocked)
 		}
+	}
+}
+
+func findTopLeftCordonIndexKey(source map[CordonIndexKey]any) (CordonIndexKey, bool) {
+	if len(source) == 0 {
+		return CordonIndexKey{}, false
+	}
+
+	var minKey *CordonIndexKey
+
+	for k := range source {
+		if minKey == nil {
+			minKey = &k
+		} else if k.Row < minKey.Row {
+			minKey = &k
+		} else if k.Row == minKey.Row && k.Col < minKey.Col {
+			minKey = &k
+		}
+	}
+
+	return *minKey, true
+}
+
+func (g *Game) ExtractCordon(floodFillGrid [][]FloodFillCellState) [][]CordonIndexKey {
+	cordonExtractor := NewCordon()
+
+	// Firstly I need to build an index of all BLOCKED dots which are on the outer edge.
+	for rowIdx := uint8(0); rowIdx < g.GameField.Height; rowIdx++ {
+		for colIdx := uint8(0); colIdx < g.GameField.Width; colIdx++ {
+			state := floodFillGrid[rowIdx][colIdx]
+			if state != FloodFillCellStateBlocked {
+				continue
+			}
+
+			isCordon := false
+			if rowIdx == 0 || colIdx == 0 || rowIdx == g.GameField.Height-1 || colIdx == g.GameField.Width-1 {
+				// If a blocked cell is on the edge -> it's always a part of the cordon.
+				isCordon = true
+			} else {
+				// Otherwise I need to check if at least one of the 4-directional neighbours is None.
+				// If yes -> it's part of the cordon.
+				prevRowIdx := rowIdx - 1
+				prevColIdx := colIdx - 1
+				nextRowIdx := rowIdx + 1
+				nextColIdx := colIdx + 1
+
+				isCordon = floodFillGrid[rowIdx][prevColIdx] == FloodFillCellStateNone ||
+					floodFillGrid[rowIdx][nextColIdx] == FloodFillCellStateNone ||
+					floodFillGrid[prevRowIdx][colIdx] == FloodFillCellStateNone ||
+					floodFillGrid[nextRowIdx][colIdx] == FloodFillCellStateNone
+			}
+
+			if !isCordon {
+				continue
+			}
+
+			key := CordonIndexKey{
+				Row: rowIdx,
+				Col: colIdx,
+			}
+			var value any
+			cordonExtractor.Index[key] = value
+		}
+	}
+
+	slog.Info(fmt.Sprintf("Cordon index: %+v", cordonExtractor.Index))
+
+	// In the real game it's possible to close 2 cordons with a single move (when 2 diamond shapes are getting connected).
+	// However I believe 2 is the max. I can't imagine how it can be 3 or more cordons.
+	//
+	// But to solve the problem I prefer a generic loop instead of 2 hardcoded runs.
+	// Each iteration extracts 1 cordon. This cordon may contain joints which also belong to another cordon.
+	// Non-joints are deleted from the index before the next run.
+	// The loop stops if the index is empty or no cordon was extracted during the run.
+	extractedCordons := make([][]CordonIndexKey, 0)
+	for {
+		startFromKey, found := findTopLeftCordonIndexKey(cordonExtractor.Index)
+		if !found {
+			break
+		}
+
+		cordonExtractor.Ordered = make([]CordonIndexKey, 0, len(cordonExtractor.Index))
+		g.AdvanceCordon(cordonExtractor, startFromKey)
+		slog.Info(fmt.Sprintf("Cordon Pass: len=%d, %+v", len(cordonExtractor.Ordered), cordonExtractor.Ordered))
+
+		if len(cordonExtractor.Ordered) == 0 {
+			// This run has not found any cordon - give up.
+			break
+		}
+
+		extractedCordons = append(extractedCordons, cordonExtractor.Ordered)
+
+		joints := make([]CordonIndexKey, 0)
+		for _, key := range cordonExtractor.Ordered {
+			neighbours := Neighbours(key, cordonExtractor.Index)
+			remainingNeighbours := slices.DeleteFunc(neighbours, func(candidate CordonIndexKey) bool {
+				return slices.Contains(cordonExtractor.Ordered, candidate)
+			})
+			if len(remainingNeighbours) > 0 {
+				joints = append(joints, key)
+			}
+		}
+
+		for _, key := range cordonExtractor.Ordered {
+			if slices.Contains(joints, key) {
+				continue
+			}
+
+			delete(cordonExtractor.Index, key)
+		}
+
+		if len(cordonExtractor.Index) == 0 {
+			break
+		}
+	}
+
+	return extractedCordons
+}
+
+func Neighbours(currentKey CordonIndexKey, cordonIndex map[CordonIndexKey]any) []CordonIndexKey {
+	neighbours := []CordonIndexKey{
+		{Row: currentKey.Row - 1, Col: currentKey.Col - 1},
+		{Row: currentKey.Row - 1, Col: currentKey.Col},
+		{Row: currentKey.Row - 1, Col: currentKey.Col + 1},
+		{Row: currentKey.Row, Col: currentKey.Col + 1},
+		{Row: currentKey.Row + 1, Col: currentKey.Col + 1},
+		{Row: currentKey.Row + 1, Col: currentKey.Col},
+		{Row: currentKey.Row + 1, Col: currentKey.Col - 1},
+		{Row: currentKey.Row, Col: currentKey.Col - 1},
+	}
+
+	existingNeighbours := slices.DeleteFunc(neighbours, func(n CordonIndexKey) bool {
+		_, found := cordonIndex[n]
+		return !found
+	})
+
+	return existingNeighbours
+}
+
+func (g *Game) AdvanceCordon(cordon *Cordon, currentKey CordonIndexKey) {
+	cordon.Ordered = append(cordon.Ordered, currentKey)
+
+	existingNeighbours := Neighbours(currentKey, cordon.Index)
+	slog.Debug(fmt.Sprintf("Before sort for %+v: %+v", currentKey, existingNeighbours))
+	slices.SortStableFunc(existingNeighbours, func(k1, k2 CordonIndexKey) int {
+		dc1 := currentKey.Col - k1.Col
+		dr1 := currentKey.Row - k1.Row
+		distance1 := dc1*dc1 + dr1*dr1
+
+		dc2 := currentKey.Col - k2.Col
+		dr2 := currentKey.Row - k2.Row
+		distance2 := dc2*dc2 + dr2*dr2
+
+		return cmp.Compare(distance1, distance2)
+	})
+	slog.Debug(fmt.Sprintf("After sort for %+v: %+v", currentKey, existingNeighbours))
+
+	for _, n := range existingNeighbours {
+		if len(cordon.Ordered) >= 3 && cordon.Ordered[0] == n {
+			if cordon.Ordered[len(cordon.Ordered)-1] != n {
+				cordon.Ordered = append(cordon.Ordered, n)
+			}
+			return
+		}
+
+		if slices.Contains(cordon.Ordered, n) {
+			continue
+		}
+
+		g.AdvanceCordon(cordon, n)
+		break
 	}
 }
 
@@ -233,15 +424,33 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) error {
 
 		floodFillGrid := g.GameField.ToFloodFillGrid()
 		g.RunFloodFill(floodFillGrid, defenderDots, defenderIdx)
+		//g.ExtractCordon(floodFillGrid)
 
-		escapedDots := make([]Dot, 0, len(defenderDots))
-		for _, defenderDot := range defenderDots {
-			escapedDots = append(escapedDots, defenderDot)
+		defenderTrappedFilter := func(dot Dot) bool {
+			return dot.Owned && dot.Owner == defenderIdx && floodFillGrid[dot.Row][dot.Col] == FloodFillCellStateBlocked
 		}
 
+		trappedDots := g.GameField.Find(
+			defenderTrappedFilter)
+		g.Players[offenderIndex].Score += uint32(len(trappedDots))
+
+		g.GameField.Transform(
+			defenderTrappedFilter,
+			func(dot Dot) Dot {
+				return dot.WithKilled()
+			})
+
+		/*
+			offenderDotsFilter := func(dot Dot) bool {
+				return !dot.Killed && dot.Owned && dot.Owner == offenderIndex
+			}
+
+				cordonDots := g.GameField.Find(offenderDotsFilter)
+				if len(cordonDots) > 0 {
+					topLeftDot := cordonDots[0]
+				}
+		*/
 	}
 
-	activePlayer := g.Players[offenderIndex]
-	activePlayer.Score = 0
 	return nil
 }
