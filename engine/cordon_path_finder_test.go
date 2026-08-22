@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGameExtractCordonFromDiamond(t *testing.T) {
+func TestFindCordons_Diamond(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4
 	// r0    .  .  .  .  .
@@ -30,8 +30,8 @@ func TestGameExtractCordonFromDiamond(t *testing.T) {
 		{N, N, N, N, N},
 	}
 
-	game := engine.NewGame(engine.NewGameField(5, 5), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 1)
 
@@ -44,7 +44,7 @@ func TestGameExtractCordonFromDiamond(t *testing.T) {
 	}, cordons[0])
 }
 
-func TestGameExtractCordonFromFullyBlockedGrid(t *testing.T) {
+func TestFindCordons_FullyBlockedGrid(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3
 	// r0    B  B  B  B
@@ -61,8 +61,8 @@ func TestGameExtractCordonFromFullyBlockedGrid(t *testing.T) {
 		{B, B, B, B},
 	}
 
-	game := engine.NewGame(engine.NewGameField(4, 4), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 1)
 
@@ -83,7 +83,7 @@ func TestGameExtractCordonFromFullyBlockedGrid(t *testing.T) {
 	}, cordons[0])
 }
 
-func TestGameExtractCordonFromAsymmetricBlob(t *testing.T) {
+func TestFindCordons_AsymmetricBlob(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4 c5 c6
 	// r0    .  .  .  .  .  .  .
@@ -109,8 +109,8 @@ func TestGameExtractCordonFromAsymmetricBlob(t *testing.T) {
 		{N, N, N, N, N, N, N},
 	}
 
-	game := engine.NewGame(engine.NewGameField(7, 7), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 1)
 
@@ -132,7 +132,7 @@ func TestGameExtractCordonFromAsymmetricBlob(t *testing.T) {
 	}, cordons[0])
 }
 
-func TestGameExtractCordonFromZigzagSShape(t *testing.T) {
+func TestFindCordons_ZigzagSShape(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4 c5 c6 c7 c8 c9 c10
 	// r0    .  .  B  B  B  B  .  .  B  .  .
@@ -170,8 +170,8 @@ func TestGameExtractCordonFromZigzagSShape(t *testing.T) {
 		{N, N, N, B, B, B, B, B, B, B, B},
 	}
 
-	game := engine.NewGame(engine.NewGameField(11, 13), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 2)
 
@@ -228,7 +228,7 @@ func TestGameExtractCordonFromZigzagSShape(t *testing.T) {
 	}, cordons[1])
 }
 
-func TestGameExtractCordonFromTwoRectanglesSharingCorner(t *testing.T) {
+func TestFindCordons_TwoRectanglesSharingCorner(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4
 	// r0    B  B  B  .  .
@@ -250,8 +250,8 @@ func TestGameExtractCordonFromTwoRectanglesSharingCorner(t *testing.T) {
 		{E, E, B, B, B},
 	}
 
-	game := engine.NewGame(engine.NewGameField(5, 5), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 1)
 
@@ -273,7 +273,7 @@ func TestGameExtractCordonFromTwoRectanglesSharingCorner(t *testing.T) {
 	}, cordons[0])
 }
 
-func TestGameExtractCordonFromTwoDiamondsSharingCorner(t *testing.T) {
+func TestFindCordons_TwoDiamondsSharingCorner(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4
 	// r0    .  .  B  .  .
@@ -295,8 +295,8 @@ func TestGameExtractCordonFromTwoDiamondsSharingCorner(t *testing.T) {
 		{N, N, B, N, N},
 	}
 
-	game := engine.NewGame(engine.NewGameField(5, 5), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 2)
 
@@ -317,7 +317,7 @@ func TestGameExtractCordonFromTwoDiamondsSharingCorner(t *testing.T) {
 	}, cordons[1])
 }
 
-func TestGameExtractCordonFromFourDiamondsSharingCenter(t *testing.T) {
+func TestFindCordons_FourDiamondsSharingCenter(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4
 	// r0    .  .  B  .  .
@@ -340,8 +340,8 @@ func TestGameExtractCordonFromFourDiamondsSharingCenter(t *testing.T) {
 		{E, E, B, N, N},
 	}
 
-	game := engine.NewGame(engine.NewGameField(5, 5), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 1)
 
@@ -358,7 +358,7 @@ func TestGameExtractCordonFromFourDiamondsSharingCenter(t *testing.T) {
 	}, cordons[0])
 }
 
-func TestGameExtractCordonFromTwoRaggedPocketsSharingCorner(t *testing.T) {
+func TestFindCordons_TwoRaggedPocketsSharingCorner(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4 c5 c6 c7
 	// r0    .  .  .  .  B  B  B  .
@@ -386,8 +386,8 @@ func TestGameExtractCordonFromTwoRaggedPocketsSharingCorner(t *testing.T) {
 		{N, B, B, B, N, N, N, N},
 	}
 
-	game := engine.NewGame(engine.NewGameField(8, 8), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 2)
 
@@ -422,7 +422,7 @@ func TestGameExtractCordonFromTwoRaggedPocketsSharingCorner(t *testing.T) {
 	}, cordons[1])
 }
 
-func TestGameExtractCordonFromBalancedRandomBoard(t *testing.T) {
+func TestFindCordons_BalancedRandomBoard(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4 c5 c6 c7
 	// r0    B  R  B  B  R  B  R  R
@@ -451,8 +451,8 @@ func TestGameExtractCordonFromBalancedRandomBoard(t *testing.T) {
 		{E, N, B, E, B, E, E, N},
 	}
 
-	game := engine.NewGame(engine.NewGameField(8, 8), nil)
-	cordons := game.ExtractCordon(floodFillGrid)
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 3)
 
