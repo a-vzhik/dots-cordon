@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 )
 
 type GameField struct {
@@ -197,6 +198,28 @@ func setEscapeCandidatesToState(floodFillGrid [][]FloodFillCellState, state Floo
 	}
 }
 
+func PrintFloodFillGrid(floodFillGrid [][]FloodFillCellState) {
+	slog.Info("Floodfill Grid: ")
+
+	for _, row := range floodFillGrid {
+		var builder strings.Builder
+		for _, s := range row {
+			rune := '.'
+			switch s {
+			case FloodFillCellStateBlocked:
+				rune = 'B'
+			case FloodFillCellStateEscapeCandidate:
+				rune = 'C'
+			case FloodFillCellStateEscaped:
+				rune = 'E'
+			}
+			builder.WriteRune(rune)
+			builder.WriteByte(' ')
+		}
+		slog.Info(builder.String())
+	}
+}
+
 func (g *Game) RunFloodFill(floodFillGrid [][]FloodFillCellState, defenderDots []Dot, defenderIdx PlayerIndex) {
 	//
 	// Create  a flood fill grid of the same size as GameField. This grid contains states: UNKNOWN, BLOCKED, ESCAPED, ESCAPE_CANDIDATE(transient)
@@ -248,6 +271,16 @@ func findTopLeftCordonIndexKey(source map[CordonIndexKey]any) (CordonIndexKey, b
 	return *minKey, true
 }
 
+func ExtractLoop(extractedCordon []CordonIndexKey) []CordonIndexKey {
+	trimmedCordon := extractedCordon
+
+	for trimmedCordon[0] != trimmedCordon[len(trimmedCordon)-1] {
+		trimmedCordon = trimmedCordon[1:]
+	}
+
+	return trimmedCordon
+}
+
 func (g *Game) ExtractCordon(floodFillGrid [][]FloodFillCellState) [][]CordonIndexKey {
 	cordonExtractor := NewCordon()
 
@@ -264,17 +297,17 @@ func (g *Game) ExtractCordon(floodFillGrid [][]FloodFillCellState) [][]CordonInd
 				// If a blocked cell is on the edge -> it's always a part of the cordon.
 				isCordon = true
 			} else {
-				// Otherwise I need to check if at least one of the 4-directional neighbours is None.
+				// Otherwise I need to check if at least one of the 4-directional neighbours is not blocked.
 				// If yes -> it's part of the cordon.
 				prevRowIdx := rowIdx - 1
 				prevColIdx := colIdx - 1
 				nextRowIdx := rowIdx + 1
 				nextColIdx := colIdx + 1
 
-				isCordon = floodFillGrid[rowIdx][prevColIdx] == FloodFillCellStateNone ||
-					floodFillGrid[rowIdx][nextColIdx] == FloodFillCellStateNone ||
-					floodFillGrid[prevRowIdx][colIdx] == FloodFillCellStateNone ||
-					floodFillGrid[nextRowIdx][colIdx] == FloodFillCellStateNone
+				isCordon = floodFillGrid[rowIdx][prevColIdx] != FloodFillCellStateBlocked ||
+					floodFillGrid[rowIdx][nextColIdx] != FloodFillCellStateBlocked ||
+					floodFillGrid[prevRowIdx][colIdx] != FloodFillCellStateBlocked ||
+					floodFillGrid[nextRowIdx][colIdx] != FloodFillCellStateBlocked
 			}
 
 			if !isCordon {
@@ -290,7 +323,7 @@ func (g *Game) ExtractCordon(floodFillGrid [][]FloodFillCellState) [][]CordonInd
 		}
 	}
 
-	slog.Info(fmt.Sprintf("Cordon index: %+v", cordonExtractor.Index))
+	slog.Debug(fmt.Sprintf("Cordon index: %+v", cordonExtractor.Index))
 
 	// In the real game it's possible to close 2 cordons with a single move (when 2 diamond shapes are getting connected).
 	// However I believe 2 is the max. I can't imagine how it can be 3 or more cordons.
@@ -299,7 +332,7 @@ func (g *Game) ExtractCordon(floodFillGrid [][]FloodFillCellState) [][]CordonInd
 	// Each iteration extracts 1 cordon. This cordon may contain joints which also belong to another cordon.
 	// Non-joints are deleted from the index before the next run.
 	// The loop stops if the index is empty or no cordon was extracted during the run.
-	extractedCordons := make([][]CordonIndexKey, 0)
+	capturingCordons := make([][]CordonIndexKey, 0)
 	for {
 		startFromKey, found := findTopLeftCordonIndexKey(cordonExtractor.Index)
 		if !found {
@@ -307,28 +340,42 @@ func (g *Game) ExtractCordon(floodFillGrid [][]FloodFillCellState) [][]CordonInd
 		}
 
 		cordonExtractor.Ordered = make([]CordonIndexKey, 0, len(cordonExtractor.Index))
-		g.AdvanceCordon(cordonExtractor, startFromKey)
-		slog.Info(fmt.Sprintf("Cordon Pass: len=%d, %+v", len(cordonExtractor.Ordered), cordonExtractor.Ordered))
-
-		if len(cordonExtractor.Ordered) == 0 {
+		cordonFound := g.AdvanceCordon(cordonExtractor, startFromKey, startFromKey)
+		if !cordonFound {
 			// This run has not found any cordon - give up.
 			break
 		}
 
-		extractedCordons = append(extractedCordons, cordonExtractor.Ordered)
+		extractedCordon := cordonExtractor.Ordered
+		if len(extractedCordon) == 0 {
+			// This run has not found any cordon - give up.
+			break
+		}
+
+		extractedCordon = ExtractLoop(extractedCordon)
+
+		slog.Debug(fmt.Sprintf("Cordon: len=%d, %+v", len(extractedCordon), extractedCordon))
+
+		// Cordon of 4 has effectively 3 points and doesn't capture anything.
+		// We still need remove such cordon from the index, but we won't return
+		// it as a cordon
+		if len(extractedCordon) > 4 {
+			slog.Info(fmt.Sprintf("Capturing Cordon: len=%d, %+v", len(extractedCordon), extractedCordon))
+			capturingCordons = append(capturingCordons, extractedCordon)
+		}
 
 		joints := make([]CordonIndexKey, 0)
-		for _, key := range cordonExtractor.Ordered {
+		for _, key := range extractedCordon {
 			neighbours := Neighbours(key, cordonExtractor.Index)
 			remainingNeighbours := slices.DeleteFunc(neighbours, func(candidate CordonIndexKey) bool {
-				return slices.Contains(cordonExtractor.Ordered, candidate)
+				return slices.Contains(extractedCordon, candidate)
 			})
 			if len(remainingNeighbours) > 0 {
 				joints = append(joints, key)
 			}
 		}
 
-		for _, key := range cordonExtractor.Ordered {
+		for _, key := range extractedCordon {
 			if slices.Contains(joints, key) {
 				continue
 			}
@@ -341,7 +388,7 @@ func (g *Game) ExtractCordon(floodFillGrid [][]FloodFillCellState) [][]CordonInd
 		}
 	}
 
-	return extractedCordons
+	return capturingCordons
 }
 
 func Neighbours(currentKey CordonIndexKey, cordonIndex map[CordonIndexKey]any) []CordonIndexKey {
@@ -364,11 +411,10 @@ func Neighbours(currentKey CordonIndexKey, cordonIndex map[CordonIndexKey]any) [
 	return existingNeighbours
 }
 
-func (g *Game) AdvanceCordon(cordon *Cordon, currentKey CordonIndexKey) {
+func (g *Game) AdvanceCordon(cordon *Cordon, currentKey CordonIndexKey, previousKey CordonIndexKey) bool {
 	cordon.Ordered = append(cordon.Ordered, currentKey)
 
 	existingNeighbours := Neighbours(currentKey, cordon.Index)
-	slog.Debug(fmt.Sprintf("Before sort for %+v: %+v", currentKey, existingNeighbours))
 	slices.SortStableFunc(existingNeighbours, func(k1, k2 CordonIndexKey) int {
 		dc1 := currentKey.Col - k1.Col
 		dr1 := currentKey.Row - k1.Row
@@ -380,23 +426,24 @@ func (g *Game) AdvanceCordon(cordon *Cordon, currentKey CordonIndexKey) {
 
 		return cmp.Compare(distance1, distance2)
 	})
-	slog.Debug(fmt.Sprintf("After sort for %+v: %+v", currentKey, existingNeighbours))
 
 	for _, n := range existingNeighbours {
-		if len(cordon.Ordered) >= 3 && cordon.Ordered[0] == n {
-			if cordon.Ordered[len(cordon.Ordered)-1] != n {
-				cordon.Ordered = append(cordon.Ordered, n)
-			}
-			return
-		}
-
-		if slices.Contains(cordon.Ordered, n) {
+		if n == previousKey {
 			continue
 		}
 
-		g.AdvanceCordon(cordon, n)
-		break
+		if slices.Contains(cordon.Ordered, n) {
+			// Ordered cordon has enclosed segment,
+			// which could be the entire cordon or part of it
+			cordon.Ordered = append(cordon.Ordered, n)
+			return true
+		}
+
+		if g.AdvanceCordon(cordon, n, currentKey) {
+			return true
+		}
 	}
+	return false
 }
 
 func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) error {
