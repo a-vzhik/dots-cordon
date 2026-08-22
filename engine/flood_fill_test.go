@@ -30,7 +30,7 @@ func newFloodFillGrid(width uint8, height uint8) [][]engine.FloodFillCellState {
 	return floodFillGrid
 }
 
-func TestGameRunFloodFillMarksEscapedRegion(t *testing.T) {
+func TestRunFloodFill_MarksEscapedRegion(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
 	//       c0 c1 c2 c3 c4
@@ -51,16 +51,11 @@ func TestGameRunFloodFillMarksEscapedRegion(t *testing.T) {
 		field.Dots[2][colIdx] = field.Dots[2][colIdx].WithOwner(redPlayerIdx)
 		field.Dots[4][colIdx] = field.Dots[4][colIdx].WithOwner(bluePlayerIdx)
 	}
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
 
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -69,7 +64,7 @@ func TestGameRunFloodFillMarksEscapedRegion(t *testing.T) {
 	)
 }
 
-func TestGameRunFloodFillMarksEnclosedRegionBlocked(t *testing.T) {
+func TestRunFloodFill_MarksEnclosedRegionBlocked(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
 	//       c0 c1 c2 c3 c4 c5
@@ -98,16 +93,11 @@ func TestGameRunFloodFillMarksEnclosedRegionBlocked(t *testing.T) {
 			field.Dots[rowIdx][colIdx] = field.Dots[rowIdx][colIdx].WithOwner(redPlayerIdx)
 		}
 	}
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
 
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -116,7 +106,7 @@ func TestGameRunFloodFillMarksEnclosedRegionBlocked(t *testing.T) {
 	)
 }
 
-func TestGameRunFloodFillSeparatesEnclosedAndFreeRedDots(t *testing.T) {
+func TestRunFloodFill_SeparatesEnclosedAndFreeRedDots(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
 	//       c0 c1 c2 c3 c4
@@ -171,16 +161,11 @@ func TestGameRunFloodFillSeparatesEnclosedAndFreeRedDots(t *testing.T) {
 		{row: 4, col: 0},
 		{row: 4, col: 4},
 	}, redPlayerIdx)
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
 
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -194,7 +179,7 @@ func TestGameRunFloodFillSeparatesEnclosedAndFreeRedDots(t *testing.T) {
 	)
 }
 
-func TestGameRunFloodFillEscapesAllRedDotsThroughOpenRhombusHatch(t *testing.T) {
+func TestRunFloodFill_EscapesAllRedDotsThroughOpenRhombusHatch(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
 	//       c0 c1 c2 c3 c4
@@ -245,17 +230,12 @@ func TestGameRunFloodFillEscapesAllRedDotsThroughOpenRhombusHatch(t *testing.T) 
 		{row: 0, col: 4},
 		{row: 4, col: 0},
 	}, redPlayerIdx)
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
 
 	assert.Len(t, redDots, len(blueDots), "expected equal red and blue dot counts")
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -264,7 +244,7 @@ func TestGameRunFloodFillEscapesAllRedDotsThroughOpenRhombusHatch(t *testing.T) 
 	)
 }
 
-func TestGameRunFloodFillHandlesTwoRectanglesSharingCorner(t *testing.T) {
+func TestRunFloodFill_HandlesTwoRectanglesSharingCorner(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
 	//       c0 c1 c2 c3 c4
@@ -332,16 +312,11 @@ func TestGameRunFloodFillHandlesTwoRectanglesSharingCorner(t *testing.T) {
 		}
 	}
 
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
 
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -355,7 +330,7 @@ func TestGameRunFloodFillHandlesTwoRectanglesSharingCorner(t *testing.T) {
 	)
 }
 
-func TestGameRunFloodFillHandlesTwoDiamondsSharingCorner(t *testing.T) {
+func TestRunFloodFill_HandlesTwoDiamondsSharingCorner(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
 	//       c0 c1 c2 c3 c4
@@ -413,16 +388,11 @@ func TestGameRunFloodFillHandlesTwoDiamondsSharingCorner(t *testing.T) {
 		}
 	}
 
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
 
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -436,7 +406,7 @@ func TestGameRunFloodFillHandlesTwoDiamondsSharingCorner(t *testing.T) {
 	)
 }
 
-func TestGameRunFloodFillEscapesAllRedDotsThroughBorderHatch(t *testing.T) {
+func TestRunFloodFill_EscapesAllRedDotsThroughBorderHatch(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
 	//       c0 c1 c2 c3 c4
@@ -473,17 +443,12 @@ func TestGameRunFloodFillEscapesAllRedDotsThroughBorderHatch(t *testing.T) {
 		}
 	}
 
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
 
 	assert.Len(t, redDots, 8)
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -492,7 +457,7 @@ func TestGameRunFloodFillEscapesAllRedDotsThroughBorderHatch(t *testing.T) {
 	)
 }
 
-func TestGameRunFloodFillClassifiesRandomSevenBySevenGrid(t *testing.T) {
+func TestRunFloodFill_ClassifiesRandomSevenBySevenGrid(t *testing.T) {
 	// Fixed snapshot of a random alternating allocation.
 	//
 	//       c0 c1 c2 c3 c4 c5 c6
@@ -555,15 +520,9 @@ func TestGameRunFloodFillClassifiesRandomSevenBySevenGrid(t *testing.T) {
 		escapedRedDots = append(escapedRedDots, dot)
 	}
 
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
-
 	assert.Len(t, trappedRedDots, 7)
 	assert.Len(t, escapedRedDots, 17)
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
@@ -577,7 +536,7 @@ func TestGameRunFloodFillClassifiesRandomSevenBySevenGrid(t *testing.T) {
 	)
 }
 
-func TestGameRunFloodFillClassifiesSwappedRandomSevenBySevenGrid(t *testing.T) {
+func TestRunFloodFill_ClassifiesSwappedRandomSevenBySevenGrid(t *testing.T) {
 	// Fixed snapshot of a random alternating allocation after swapping
 	// (6,3) and (6,4) to close the lower-middle cordon.
 	//
@@ -643,15 +602,9 @@ func TestGameRunFloodFillClassifiesSwappedRandomSevenBySevenGrid(t *testing.T) {
 		escapedRedDots = append(escapedRedDots, dot)
 	}
 
-	game := engine.NewGame(field, []*engine.Player{
-		{Color: engine.RedColor},
-		{Color: engine.BlueColor},
-	})
-	floodFillGrid := newFloodFillGrid(field.Width, field.Height)
-
 	assert.Len(t, trappedRedDots, 9)
 	assert.Len(t, escapedRedDots, 16)
-	game.RunFloodFill(floodFillGrid, redDots, redPlayerIdx)
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
 	assert.True(
 		t,
