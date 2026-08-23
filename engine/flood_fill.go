@@ -13,6 +13,7 @@ const (
 	FloodFillCellStateBlocked
 	FloodFillCellStateEscaped
 	FloodFillCellStateEscapeCandidate
+	FloodFillCellStateKilled
 )
 
 func setEscapeCandidatesToState(floodFillGrid [][]FloodFillCellState, state FloodFillCellState) {
@@ -55,6 +56,8 @@ func PrintFloodFillGrid(floodFillGrid [][]FloodFillCellState) {
 				rune = 'C'
 			case FloodFillCellStateEscaped:
 				rune = 'E'
+			case FloodFillCellStateKilled:
+				rune = 'x'
 			}
 			builder.WriteRune(rune)
 			builder.WriteByte(' ')
@@ -100,6 +103,8 @@ func RunFloodFill(gameField *GameField, defenderDots []Dot, defenderIdx PlayerIn
 func HasDotEscaped(gameField *GameField, floodFillGrid [][]FloodFillCellState, defenderIdx PlayerIndex, currRowIdx uint8, currColIdx uint8) bool {
 	knownState := floodFillGrid[currRowIdx][currColIdx]
 	switch knownState {
+	case FloodFillCellStateKilled:
+		return false
 	case FloodFillCellStateBlocked:
 		return false
 	case FloodFillCellStateEscaped:
@@ -110,7 +115,7 @@ func HasDotEscaped(gameField *GameField, floodFillGrid [][]FloodFillCellState, d
 
 	dot := gameField.Dots[currRowIdx][currColIdx]
 	if dot.Killed {
-		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateBlocked
+		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateKilled
 		return false
 	}
 	if !dot.Owned {

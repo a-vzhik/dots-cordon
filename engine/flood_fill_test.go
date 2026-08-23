@@ -406,6 +406,64 @@ func TestRunFloodFill_HandlesTwoDiamondsSharingCorner(t *testing.T) {
 	)
 }
 
+func TestRunFloodFill_DoesNotCloseDiamondThroughKilledDot(t *testing.T) {
+	// Grid (zero-based row and column indices):
+	//
+	//       c0 c1 c2 c3 c4
+	// r0    .  .  .  .  .
+	// r1    .  .  R  .  .
+	// r2    .  R  x  R  .
+	// r3    .  B  R  B  .
+	// r4    .  .  B  .  .
+	//
+	// R = red dot, B = blue dot, x = killed blue dot, . = unowned dot.
+	const (
+		redPlayerIdx engine.PlayerIndex = iota
+		bluePlayerIdx
+	)
+	type position struct {
+		row uint8
+		col uint8
+	}
+
+	field := engine.NewGameField(5, 5)
+	for _, position := range []position{
+		{row: 1, col: 2},
+		{row: 2, col: 1},
+		{row: 2, col: 3},
+		{row: 3, col: 2},
+	} {
+		field.Dots[position.row][position.col] = field.Dots[position.row][position.col].WithOwner(redPlayerIdx)
+	}
+	for _, position := range []position{
+		{row: 3, col: 1},
+		{row: 3, col: 3},
+		{row: 4, col: 2},
+	} {
+		field.Dots[position.row][position.col] = field.Dots[position.row][position.col].WithOwner(bluePlayerIdx)
+	}
+	field.Dots[2][2] = field.Dots[2][2].WithOwner(bluePlayerIdx).WithKilled()
+
+	redDots := field.Find(func(dot engine.Dot) bool {
+		return !dot.Killed && dot.Owned && dot.Owner == redPlayerIdx
+	})
+	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
+
+	const (
+		N = engine.FloodFillCellStateNone
+		B = engine.FloodFillCellStateBlocked
+		E = engine.FloodFillCellStateEscaped
+		K = engine.FloodFillCellStateKilled
+	)
+	assert.Equal(t, [][]engine.FloodFillCellState{
+		{N, E, E, E, N},
+		{N, E, E, E, N},
+		{N, E, K, E, N},
+		{N, B, B, B, N},
+		{N, N, B, N, N},
+	}, floodFillGrid)
+}
+
 func TestRunFloodFill_EscapesAllRedDotsThroughBorderHatch(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
