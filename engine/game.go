@@ -82,7 +82,7 @@ type Game struct {
 
 type MoveResult struct {
 	ScoredPoints uint32
-	Cordons      [][]CordonIndexKey
+	Cordons      [][]Dot
 	KilledDots   []Dot
 	IsTerminal   bool
 }
@@ -170,10 +170,20 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		return !dot.Killed && !dot.Owned
 	})
 
+	// Coonvert internal cordons to cordons of Dot
+	dotCordons := make([][]Dot, 0, len(cordons))
+	for _, cordon := range cordons {
+		dotCordon := make([]Dot, 0, len(cordon))
+		for _, cordonKey := range cordon {
+			dotCordon = append(dotCordon, g.GameField.Dots[cordonKey.Row][cordonKey.Col])
+		}
+		dotCordons = append(dotCordons, dotCordon)
+	}
+
 	return &MoveResult{
 		ScoredPoints: scoredPoints,
 		KilledDots:   killedDots,
-		Cordons:      cordons,
+		Cordons:      dotCordons,
 		IsTerminal:   len(emptyDots) == 0,
 	}, nil
 }

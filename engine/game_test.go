@@ -60,12 +60,12 @@ func TestMove_CapturesDotInDiamond(t *testing.T) {
 
 	assert.Equal(t, &MoveResult{
 		ScoredPoints: 1,
-		Cordons: [][]CordonIndexKey{{
-			{Row: 1, Col: 2},
-			{Row: 2, Col: 3},
-			{Row: 3, Col: 2},
-			{Row: 2, Col: 1},
-			{Row: 1, Col: 2},
+		Cordons: [][]Dot{{
+			{Row: 1, Col: 2, Owned: true, Owner: 0},
+			{Row: 2, Col: 3, Owned: true, Owner: 0},
+			{Row: 3, Col: 2, Owned: true, Owner: 0},
+			{Row: 2, Col: 1, Owned: true, Owner: 0},
+			{Row: 1, Col: 2, Owned: true, Owner: 0},
 		}},
 		KilledDots: []Dot{{
 			Col:   2,
