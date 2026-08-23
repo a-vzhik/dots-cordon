@@ -20,3 +20,7 @@ func (source Dot) WithKilled() Dot {
 	result.Killed = true
 	return result
 }
+
+func (dot Dot) IsOwnedBy(playerIndex PlayerIndex) bool {
+	return dot.Owned && dot.Owner == playerIndex
+}

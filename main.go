@@ -34,13 +34,13 @@ func main() {
 		engine.NewGameField(20, 20),
 		players)
 
-	_ = game.Move(0, 10, 9)
-	_ = game.Move(1, 10, 10)
-	_ = game.Move(0, 9, 10)
-	_ = game.Move(1, 1, 1)
-	_ = game.Move(0, 10, 11)
-	_ = game.Move(1, 2, 2)
-	_ = game.Move(0, 11, 10)
+	_, _ = game.Move(0, 10, 9)
+	_, _ = game.Move(1, 10, 10)
+	_, _ = game.Move(0, 9, 10)
+	_, _ = game.Move(1, 1, 1)
+	_, _ = game.Move(0, 10, 11)
+	_, _ = game.Move(1, 2, 2)
+	_, _ = game.Move(0, 11, 10)
 
 	slog.Info(fmt.Sprintf("Score %d : %d", game.Players[0].Score, game.Players[1].Score))
 }

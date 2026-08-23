@@ -3,6 +3,7 @@ package engine
 
 import (
 	"fmt"
+	"slices"
 )
 
 type GameField struct {
@@ -32,7 +33,18 @@ func NewGameField(width uint8, height uint8) *GameField {
 	}
 }
 
-func (gf *GameField) Transform(filterFunc func(Dot) bool, applyFunc func(Dot) Dot) {
+func (gf *GameField) Transform(row uint8, col uint8, applyFunc func(Dot) Dot) {
+	oldDot := gf.Dots[row][col]
+	gf.Dots[row][col] = applyFunc(oldDot)
+}
+
+func (gf *GameField) TransformMany(sourceDots []Dot, applyFunc func(Dot) Dot) {
+	for _, source := range sourceDots {
+		gf.Dots[source.Row][source.Col] = applyFunc(source)
+	}
+}
+
+func (gf *GameField) TransformFunc(filterFunc func(Dot) bool, applyFunc func(Dot) Dot) {
 	for rowIdx, row := range gf.Dots {
 		for colIdx, oldDot := range row {
 
@@ -68,6 +80,13 @@ type Game struct {
 	PlayerCount PlayerIndex
 }
 
+type MoveResult struct {
+	ScoredPoints uint32
+	Cordons      [][]CordonIndexKey
+	KilledDots   []Dot
+	IsTerminal   bool
+}
+
 func NewGame(gameField *GameField, players []*Player) *Game {
 	game := &Game{
 		GameField: gameField,
@@ -78,57 +97,83 @@ func NewGame(gameField *GameField, players []*Player) *Game {
 	return game
 }
 
-func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) error {
+func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResult, error) {
 	if offenderIndex >= g.PlayerCount {
-		return fmt.Errorf("invalid player: %w", ErrUnknownPlayer)
+		return nil, fmt.Errorf("invalid player: %w", ErrUnknownPlayer)
 	}
 
-	g.GameField.Transform(
-		func(candidate Dot) bool {
-			return col == candidate.Col && row == candidate.Row && !candidate.Killed && !candidate.Owned
-		},
-		func(oldDot Dot) Dot {
-			return oldDot.WithOwner(offenderIndex)
+	if row >= g.GameField.Height || col >= g.GameField.Width {
+		return nil, fmt.Errorf("invalid move: %w", ErrInvalidMove)
+	}
+
+	attemptedDot := g.GameField.Dots[row][col]
+	if attemptedDot.Killed || attemptedDot.Owned {
+		return nil, fmt.Errorf("dot must be empty: %w", ErrNonEmptyDot)
+	}
+
+	// Mark claimed dot.
+	g.GameField.Transform(row, col, func(oldDot Dot) Dot {
+		return oldDot.WithOwner(offenderIndex)
+	})
+
+	// Find active denfender dots and find cordons.
+	defenderIdx := offenderIndex.EnemyIndex()
+	activeDefenderDots := g.GameField.Find(
+		func(dot Dot) bool {
+			return !dot.Killed && dot.IsOwnedBy(defenderIdx)
 		})
 
-	for defenderIdx := PlayerIndex(0); defenderIdx < g.PlayerCount; defenderIdx++ {
-		if defenderIdx == offenderIndex {
-			continue
-		}
+	floodFillGrid := RunFloodFill(g.GameField, activeDefenderDots, defenderIdx)
+	cordonPathFinder := NewCordonPathFinder()
+	cordons := cordonPathFinder.FindCordons(floodFillGrid)
 
-		defenderDots := g.GameField.Find(
-			func(dot Dot) bool {
-				return dot.Owned && dot.Owner == PlayerIndex(defenderIdx)
-			})
-
-		floodFillGrid := RunFloodFill(g.GameField, defenderDots, defenderIdx)
-		//g.ExtractCordon(floodFillGrid)
-
-		defenderTrappedFilter := func(dot Dot) bool {
-			return dot.Owned && dot.Owner == defenderIdx && floodFillGrid[dot.Row][dot.Col] == FloodFillCellStateBlocked
-		}
-
-		trappedDots := g.GameField.Find(
-			defenderTrappedFilter)
-		g.Players[offenderIndex].Score += uint32(len(trappedDots))
-
-		g.GameField.Transform(
-			defenderTrappedFilter,
-			func(dot Dot) Dot {
-				return dot.WithKilled()
-			})
-
-		/*
-			offenderDotsFilter := func(dot Dot) bool {
-				return !dot.Killed && dot.Owned && dot.Owner == offenderIndex
-			}
-
-				cordonDots := g.GameField.Find(offenderDotsFilter)
-				if len(cordonDots) > 0 {
-					topLeftDot := cordonDots[0]
-				}
-		*/
+	// Return if no cordons found.
+	if len(cordons) == 0 {
+		return &MoveResult{}, nil
 	}
 
-	return nil
+	// Find all killed dots inside all cordons (these can be empty, offender's or defender's)
+	killedDots := g.GameField.Find(func(dot Dot) bool {
+		if dot.Killed {
+			return false
+		}
+
+		if floodFillGrid[dot.Row][dot.Col] != FloodFillCellStateBlocked {
+			return false
+		}
+
+		for _, cordon := range cordons {
+			if slices.Contains(cordon, CordonIndexKey{Row: dot.Row, Col: dot.Col}) {
+				return false
+			}
+		}
+
+		return true
+	})
+
+	// Update scored points based on defender's killed dots only.
+	scoredPoints := uint32(0)
+	for _, trappedDot := range killedDots {
+		if trappedDot.IsOwnedBy(defenderIdx) {
+			scoredPoints++
+		}
+	}
+	g.Players[offenderIndex].Score += uint32(scoredPoints)
+
+	// Mark all killed dots as killed.
+	g.GameField.TransformMany(killedDots, func(dot Dot) Dot {
+		return dot.WithKilled()
+	})
+
+	// Check if there are further available moves.
+	emptyDots := g.GameField.Find(func(dot Dot) bool {
+		return !dot.Killed && !dot.Owned
+	})
+
+	return &MoveResult{
+		ScoredPoints: scoredPoints,
+		KilledDots:   killedDots,
+		Cordons:      cordons,
+		IsTerminal:   len(emptyDots) == 0,
+	}, nil
 }
