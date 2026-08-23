@@ -1,5 +1,10 @@
 package engine
 
+import (
+	"fmt"
+	"strings"
+)
+
 type GameField struct {
 	Width  uint8
 	Height uint8
@@ -27,6 +32,38 @@ func NewGameField(width uint8, height uint8) *GameField {
 	}
 }
 
+func (gf *GameField) ToString() string {
+	var result strings.Builder
+
+	result.WriteString("    ")
+	for colIdx := 0; colIdx < int(gf.Width); colIdx++ {
+		if colIdx > 0 {
+			result.WriteByte(' ')
+		}
+		fmt.Fprintf(&result, "%02d", colIdx)
+	}
+
+	for rowIdx, row := range gf.Dots {
+		fmt.Fprintf(&result, "\n%02d  ", rowIdx)
+		for colIdx, dot := range row {
+			if colIdx > 0 {
+				result.WriteString("  ")
+			}
+
+			switch {
+			case dot.Killed:
+				result.WriteByte('K')
+			case dot.Owned:
+				fmt.Fprintf(&result, "%d", dot.Owner)
+			default:
+				result.WriteByte('.')
+			}
+		}
+	}
+
+	return result.String()
+}
+
 func (gf *GameField) Transform(row uint8, col uint8, applyFunc func(Dot) Dot) {
 	oldDot := gf.Dots[row][col]
 	gf.Dots[row][col] = applyFunc(oldDot)
@@ -50,6 +87,14 @@ func (gf *GameField) TransformFunc(filterFunc func(Dot) bool, applyFunc func(Dot
 			gf.Dots[rowIdx][colIdx] = newDot
 		}
 	}
+}
+
+func (gf *GameField) IsFull() bool {
+	emptyDots := gf.Find(func(dot Dot) bool {
+		return !dot.Killed && !dot.Owned
+	})
+
+	return len(emptyDots) == 0
 }
 
 func (gf *GameField) Find(filterFunc func(Dot) bool) []Dot {

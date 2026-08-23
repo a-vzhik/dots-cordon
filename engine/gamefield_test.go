@@ -6,6 +6,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestGameFieldToString(t *testing.T) {
+	field := NewGameField(3, 2)
+	field.Dots[0][1] = field.Dots[0][1].WithOwner(PlayerIndex(0))
+	field.Dots[0][2] = field.Dots[0][2].WithOwner(PlayerIndex(1)).WithKilled()
+	field.Dots[1][0] = field.Dots[1][0].WithOwner(PlayerIndex(1))
+
+	want := "    00 01 02\n" +
+		"00  .  0  K\n" +
+		"01  1  .  ."
+	assert.Equal(t, want, field.ToString())
+}
+
+func TestGameFieldIsFull(t *testing.T) {
+	t.Run("false when an empty dot remains", func(t *testing.T) {
+		field := NewGameField(2, 1)
+		field.Dots[0][0] = field.Dots[0][0].WithOwner(PlayerIndex(0))
+
+		assert.False(t, field.IsFull())
+	})
+
+	t.Run("true when every dot is unavailable", func(t *testing.T) {
+		field := NewGameField(2, 1)
+		field.Dots[0][0] = field.Dots[0][0].WithOwner(PlayerIndex(0))
+		field.Dots[0][1] = field.Dots[0][1].WithKilled()
+
+		assert.True(t, field.IsFull())
+	})
+}
+
 func TestGameFieldTransformFiltersDots(t *testing.T) {
 	t.Run("single dot", func(t *testing.T) {
 		field := NewGameField(3, 2)

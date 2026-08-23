@@ -17,7 +17,16 @@ const (
 	BlueColor
 )
 
+type PlayerType int
+
+const (
+	Human PlayerType = iota
+	RandomAI
+	TrainedAI
+)
+
 type Player struct {
-	Score uint32
-	Color PlayerColor
+	Score      uint32
+	Color      PlayerColor
+	PlayerType PlayerType
 }

@@ -10,6 +10,7 @@ type Game struct {
 	GameField   *GameField
 	Players     []*Player
 	PlayerCount PlayerIndex
+	recorder    Recorder
 }
 
 type MoveResult struct {
@@ -19,13 +20,15 @@ type MoveResult struct {
 	IsTerminal   bool
 }
 
-func NewGame(gameField *GameField, players []*Player) *Game {
+func NewGame(gameField *GameField, players []*Player, recorder Recorder) *Game {
 	game := &Game{
 		GameField: gameField,
 		Players:   players,
+		recorder:  recorder,
 	}
 
 	game.PlayerCount = PlayerIndex(len(players))
+	game.recorder.RecordStart(gameField.Width, gameField.Height)
 	return game
 }
 
@@ -61,7 +64,9 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 
 	// Return if no cordons found.
 	if len(cordons) == 0 {
-		return &MoveResult{}, nil
+		return g.recordMove(offenderIndex, row, col, &MoveResult{
+			IsTerminal: g.GameField.IsFull(),
+		})
 	}
 
 	// Find all killed dots inside all cordons (these can be empty, offender's or defender's)
@@ -97,11 +102,6 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		return dot.WithKilled()
 	})
 
-	// Check if there are further available moves.
-	emptyDots := g.GameField.Find(func(dot Dot) bool {
-		return !dot.Killed && !dot.Owned
-	})
-
 	// Coonvert internal cordons to cordons of Dot
 	dotCordons := make([][]Dot, 0, len(cordons))
 	for _, cordon := range cordons {
@@ -112,10 +112,20 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		dotCordons = append(dotCordons, dotCordon)
 	}
 
-	return &MoveResult{
+	return g.recordMove(offenderIndex, row, col, &MoveResult{
 		ScoredPoints: scoredPoints,
 		KilledDots:   killedDots,
 		Cordons:      dotCordons,
-		IsTerminal:   len(emptyDots) == 0,
-	}, nil
+		IsTerminal:   g.GameField.IsFull(),
+	})
+}
+
+func (g *Game) recordMove(
+	playerIdx PlayerIndex,
+	row uint8,
+	col uint8,
+	result *MoveResult,
+) (*MoveResult, error) {
+	g.recorder.RecordMove(playerIdx, row, col, *result)
+	return result, nil
 }
