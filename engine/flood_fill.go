@@ -19,7 +19,7 @@ const (
 func setEscapeCandidatesToState(floodFillGrid [][]FloodFillCellState, state FloodFillCellState) {
 	slog.Debug(fmt.Sprintf("Marking all escape candidate with %d: %+v\n", state, floodFillGrid))
 	for i := range floodFillGrid {
-		for j := range floodFillGrid {
+		for j := range floodFillGrid[i] {
 			if floodFillGrid[i][j] != FloodFillCellStateEscapeCandidate {
 				continue
 			}

@@ -30,6 +30,20 @@ func newFloodFillGrid(width uint8, height uint8) [][]engine.FloodFillCellState {
 	return floodFillGrid
 }
 
+func TestRunFloodFill_SupportsRectangularGrid(t *testing.T) {
+	field := engine.NewGameField(10, 20)
+	field.Dots[2][7] = field.Dots[2][7].WithOwner(engine.PlayerIndex(0))
+	defenderDots := []engine.Dot{field.Dots[2][7]}
+
+	floodFillGrid := engine.RunFloodFill(field, defenderDots, engine.PlayerIndex(0))
+
+	assert.Len(t, floodFillGrid, 20)
+	for _, row := range floodFillGrid {
+		assert.Len(t, row, 10)
+	}
+	assert.Equal(t, engine.FloodFillCellStateEscaped, floodFillGrid[2][7])
+}
+
 func TestRunFloodFill_MarksEscapedRegion(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
