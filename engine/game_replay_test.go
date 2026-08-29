@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,10 +18,19 @@ type recordedAction struct {
 	PlayerIndex PlayerIndex `json:"playerIndex"`
 	Row         uint8       `json:"row"`
 	Col         uint8       `json:"col"`
+	Result      MoveResult  `json:"result"`
+}
+
+func TestGameReplay_FourCaptures(t *testing.T) {
+	_, captureMoveCount := replayRecordedGameAndCountCaptures(
+		t,
+		"game-2026-08-29T14-35-29.json",
+	)
+	assert.Equal(t, 4, captureMoveCount)
 }
 
 func TestGameReplay_MoveAtFiveFive(t *testing.T) {
-	game := replayRecordedGame(t)
+	game, _ := replayRecordedGameAndCountCaptures(t, "game-2026-08-23T22-47-25.json")
 
 	slog.Info("========")
 
@@ -28,9 +38,9 @@ func TestGameReplay_MoveAtFiveFive(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func replayRecordedGame(t *testing.T) *Game {
+func replayRecordedGameAndCountCaptures(t *testing.T, fileName string) (*Game, int) {
 	t.Helper()
-	filePath := filepath.Join("..", "game-2026-08-23T22-47-25.json")
+	filePath := filepath.Join("testdata", fileName)
 	contents, err := os.ReadFile(filePath)
 	require.NoError(t, err)
 
@@ -45,9 +55,10 @@ func replayRecordedGame(t *testing.T) *Game {
 		NoopGameRecorder{},
 	)
 
+	captureMoveCount := 0
 	for actionIdx, action := range actions[1:] {
 		require.Equal(t, "move", action.Type, "action %d", actionIdx+1)
-		_, err := game.Move(action.PlayerIndex, action.Row, action.Col)
+		result, err := game.Move(action.PlayerIndex, action.Row, action.Col)
 		require.NoError(
 			t,
 			err,
@@ -57,7 +68,20 @@ func replayRecordedGame(t *testing.T) *Game {
 			action.Row,
 			action.Col,
 		)
+		assert.Equal(
+			t,
+			&action.Result,
+			result,
+			"replay action %d: player %d at (%d, %d)",
+			actionIdx+1,
+			action.PlayerIndex,
+			action.Row,
+			action.Col,
+		)
+		if result.ScoredPoints > 0 {
+			captureMoveCount++
+		}
 	}
 
-	return game
+	return game, captureMoveCount
 }

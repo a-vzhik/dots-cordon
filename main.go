@@ -63,9 +63,9 @@ func runGame(game *engine.Game, input *bufio.Scanner, output io.Writer) error {
 		}
 
 		fmt.Fprintf(output, "MoveResult: %+v\n", *result)
-		if err := waitForEnter(input, output); err != nil {
-			return err
-		}
+		//if err := waitForEnter(input, output); err != nil {
+		//	return err
+		//}
 
 		if result.IsTerminal {
 			printGame(output, game)

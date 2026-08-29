@@ -59,6 +59,8 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		})
 
 	floodFillGrid := RunFloodFill(g.GameField, activeDefenderDots, defenderIdx)
+	PrintFloodFillGrid(floodFillGrid)
+
 	cordonPathFinder := NewCordonPathFinder()
 	cordons := cordonPathFinder.FindCordons(floodFillGrid)
 
@@ -76,6 +78,29 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		}
 
 		if floodFillGrid[dot.Row][dot.Col] != FloodFillCellStateBlocked {
+			return false
+		}
+
+		fourNeigbours := []CordonIndexKey{
+			{Row: dot.Row - 1, Col: dot.Col},
+			{Row: dot.Row + 1, Col: dot.Col},
+			{Row: dot.Row, Col: dot.Col - 1},
+			{Row: dot.Row, Col: dot.Col + 1},
+		}
+
+		insideCordon := true
+		for _, n := range fourNeigbours {
+			if n.Col < 0 || n.Row < 0 || n.Row >= uint8(len(floodFillGrid)) || n.Col >= uint8(len(floodFillGrid)) {
+				continue
+			}
+
+			if floodFillGrid[n.Row][n.Col] != FloodFillCellStateBlocked {
+				insideCordon = false
+				break
+			}
+		}
+
+		if !insideCordon {
 			return false
 		}
 

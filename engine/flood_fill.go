@@ -14,6 +14,7 @@ const (
 	FloodFillCellStateEscaped
 	FloodFillCellStateEscapeCandidate
 	FloodFillCellStateKilled
+	FloodFillCellStatePotentialBlocked
 )
 
 func setEscapeCandidatesToState(floodFillGrid [][]FloodFillCellState, state FloodFillCellState) {
@@ -21,10 +22,41 @@ func setEscapeCandidatesToState(floodFillGrid [][]FloodFillCellState, state Floo
 	for i := range floodFillGrid {
 		for j := range floodFillGrid[i] {
 			if floodFillGrid[i][j] != FloodFillCellStateEscapeCandidate {
+				// floodFillGrid[i][j] != FloodFillCellStatePotentialBlocked {
 				continue
 			}
 			floodFillGrid[i][j] = state
 		}
+	}
+}
+
+func setPotentiallyBlockedCordonsToBlocked(floodFillGrid [][]FloodFillCellState) {
+	potentialCordon := make([]CordonIndexKey, 0)
+	for i := range floodFillGrid {
+		for j := range floodFillGrid[i] {
+			if floodFillGrid[i][j] != FloodFillCellStatePotentialBlocked {
+				continue
+			}
+
+			key := CordonIndexKey{
+				Row: uint8(i),
+				Col: uint8(j),
+			}
+
+			neighbours := allNeighboursOf(key)
+			for _, n := range neighbours {
+				if n.Col < 0 || n.Row < 0 || n.Row >= uint8(len(floodFillGrid)) || n.Col >= uint8(len(floodFillGrid[i])) {
+					continue
+				}
+				if floodFillGrid[n.Row][n.Col] == FloodFillCellStateBlocked {
+					potentialCordon = append(potentialCordon, key)
+				}
+			}
+		}
+	}
+
+	for _, cd := range potentialCordon {
+		floodFillGrid[cd.Row][cd.Col] = FloodFillCellStateBlocked
 	}
 }
 
@@ -56,6 +88,8 @@ func PrintFloodFillGrid(floodFillGrid [][]FloodFillCellState) {
 				rune = 'C'
 			case FloodFillCellStateEscaped:
 				rune = 'E'
+			case FloodFillCellStatePotentialBlocked:
+				rune = 'P'
 			case FloodFillCellStateKilled:
 				rune = 'x'
 			}
@@ -97,6 +131,7 @@ func RunFloodFill(gameField *GameField, defenderDots []Dot, defenderIdx PlayerIn
 			setEscapeCandidatesToState(floodFillGrid, FloodFillCellStateBlocked)
 		}
 	}
+	setPotentiallyBlockedCordonsToBlocked(floodFillGrid)
 	return floodFillGrid
 }
 
@@ -111,11 +146,18 @@ func HasDotEscaped(gameField *GameField, floodFillGrid [][]FloodFillCellState, d
 		return true
 	case FloodFillCellStateEscapeCandidate:
 		return false
+	case FloodFillCellStatePotentialBlocked:
+		return false
 	}
 
 	dot := gameField.Dots[currRowIdx][currColIdx]
 	if dot.Killed {
-		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateKilled
+		if dot.IsOwnedBy(defenderIdx) {
+			floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateKilled
+		} else {
+			floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
+		}
+
 		return false
 	}
 	if !dot.Owned {
@@ -125,7 +167,7 @@ func HasDotEscaped(gameField *GameField, floodFillGrid [][]FloodFillCellState, d
 		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
 	}
 	if dot.Owned && dot.Owner != defenderIdx {
-		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateBlocked
+		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStatePotentialBlocked
 		slog.Debug(fmt.Sprintf("found the other player: %d, %d", currRowIdx, currColIdx))
 		return false
 	}

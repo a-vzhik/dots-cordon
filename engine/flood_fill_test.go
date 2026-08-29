@@ -113,6 +113,8 @@ func TestRunFloodFill_MarksEnclosedRegionBlocked(t *testing.T) {
 
 	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
+	engine.PrintFloodFillGrid(floodFillGrid)
+
 	assert.True(
 		t,
 		allDotsHaveFloodFillState(redDots, floodFillGrid, engine.FloodFillCellStateBlocked),
@@ -332,6 +334,7 @@ func TestRunFloodFill_HandlesTwoRectanglesSharingCorner(t *testing.T) {
 
 	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
+	engine.PrintFloodFillGrid(floodFillGrid)
 	assert.True(
 		t,
 		allDotsHaveFloodFillState(enclosedRedDots, floodFillGrid, engine.FloodFillCellStateBlocked),
@@ -463,18 +466,21 @@ func TestRunFloodFill_DoesNotCloseDiamondThroughKilledDot(t *testing.T) {
 	})
 	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
+	engine.PrintFloodFillGrid(floodFillGrid)
+
 	const (
 		N = engine.FloodFillCellStateNone
 		B = engine.FloodFillCellStateBlocked
 		E = engine.FloodFillCellStateEscaped
 		K = engine.FloodFillCellStateKilled
+		P = engine.FloodFillCellStatePotentialBlocked
 	)
 	assert.Equal(t, [][]engine.FloodFillCellState{
 		{N, E, E, E, N},
 		{N, E, E, E, N},
-		{N, E, K, E, N},
-		{N, B, B, B, N},
-		{N, N, B, N, N},
+		{N, E, E, E, N},
+		{N, P, E, P, N},
+		{N, N, P, N, N},
 	}, floodFillGrid)
 }
 
