@@ -29,6 +29,30 @@ func TestGameReplay_FourCaptures(t *testing.T) {
 	assert.Equal(t, 4, captureMoveCount)
 }
 
+func TestGameReplay_CompleteGame1(t *testing.T) {
+	_, captureMoveCount := replayRecordedGameAndCountCaptures(
+		t,
+		"game-2026-08-29T15-25-12.json",
+	)
+	assert.Equal(t, 4, captureMoveCount)
+}
+
+func TestGameReplay_CompleteGame2(t *testing.T) {
+	_, captureMoveCount := replayRecordedGameAndCountCaptures(
+		t,
+		"game-2026-08-29T15-49-00.json",
+	)
+	assert.Equal(t, 2, captureMoveCount)
+}
+
+func TestGameReplay_NoCaptures(t *testing.T) {
+	_, captureMoveCount := replayRecordedGameAndCountCaptures(
+		t,
+		"game-2026-08-29T15-32-15.json",
+	)
+	assert.Equal(t, 0, captureMoveCount)
+}
+
 func TestGameReplay_MoveAtFiveFive(t *testing.T) {
 	game, _ := replayRecordedGameAndCountCaptures(t, "game-2026-08-23T22-47-25.json")
 
