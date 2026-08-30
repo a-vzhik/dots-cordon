@@ -138,44 +138,40 @@ func TestRunFloodFill_SeparatesEnclosedAndFreeRedDots(t *testing.T) {
 		redPlayerIdx engine.PlayerIndex = iota
 		bluePlayerIdx
 	)
-	type position struct {
-		row uint8
-		col uint8
-	}
 
 	field := engine.NewGameField(5, 5)
-	placeDots := func(positions []position, owner engine.PlayerIndex) []engine.Dot {
-		dots := make([]engine.Dot, 0, len(positions))
-		for _, position := range positions {
-			dot := field.Dots[position.row][position.col].WithOwner(owner)
-			field.Dots[position.row][position.col] = dot
+	placeDots := func(coords []engine.Coord, owner engine.PlayerIndex) []engine.Dot {
+		dots := make([]engine.Dot, 0, len(coords))
+		for _, coord := range coords {
+			dot := field.Dots[coord.Row][coord.Col].WithOwner(owner)
+			field.Dots[coord.Row][coord.Col] = dot
 			dots = append(dots, dot)
 		}
 
 		return dots
 	}
 
-	_ = placeDots([]position{
-		{row: 0, col: 2},
-		{row: 1, col: 1},
-		{row: 1, col: 3},
-		{row: 2, col: 0},
-		{row: 2, col: 4},
-		{row: 3, col: 1},
-		{row: 3, col: 3},
-		{row: 4, col: 2},
+	_ = placeDots([]engine.Coord{
+		{Row: 0, Col: 2},
+		{Row: 1, Col: 1},
+		{Row: 1, Col: 3},
+		{Row: 2, Col: 0},
+		{Row: 2, Col: 4},
+		{Row: 3, Col: 1},
+		{Row: 3, Col: 3},
+		{Row: 4, Col: 2},
 	}, bluePlayerIdx)
-	enclosedRedDots := placeDots([]position{
-		{row: 1, col: 2},
-		{row: 2, col: 1},
-		{row: 2, col: 2},
-		{row: 2, col: 3},
+	enclosedRedDots := placeDots([]engine.Coord{
+		{Row: 1, Col: 2},
+		{Row: 2, Col: 1},
+		{Row: 2, Col: 2},
+		{Row: 2, Col: 3},
 	}, redPlayerIdx)
-	freeDots := placeDots([]position{
-		{row: 0, col: 0},
-		{row: 0, col: 4},
-		{row: 4, col: 0},
-		{row: 4, col: 4},
+	freeDots := placeDots([]engine.Coord{
+		{Row: 0, Col: 0},
+		{Row: 0, Col: 4},
+		{Row: 4, Col: 0},
+		{Row: 4, Col: 4},
 	}, redPlayerIdx)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
@@ -211,40 +207,36 @@ func TestRunFloodFill_EscapesAllRedDotsThroughOpenRhombusHatch(t *testing.T) {
 		redPlayerIdx engine.PlayerIndex = iota
 		bluePlayerIdx
 	)
-	type position struct {
-		row uint8
-		col uint8
-	}
 
 	field := engine.NewGameField(5, 5)
-	placeDots := func(positions []position, owner engine.PlayerIndex) []engine.Dot {
-		dots := make([]engine.Dot, 0, len(positions))
-		for _, position := range positions {
-			dot := field.Dots[position.row][position.col].WithOwner(owner)
-			field.Dots[position.row][position.col] = dot
+	placeDots := func(coords []engine.Coord, owner engine.PlayerIndex) []engine.Dot {
+		dots := make([]engine.Dot, 0, len(coords))
+		for _, coord := range coords {
+			dot := field.Dots[coord.Row][coord.Col].WithOwner(owner)
+			field.Dots[coord.Row][coord.Col] = dot
 			dots = append(dots, dot)
 		}
 
 		return dots
 	}
 
-	blueDots := placeDots([]position{
-		{row: 0, col: 2},
-		{row: 1, col: 1},
-		{row: 1, col: 3},
-		{row: 2, col: 4},
-		{row: 3, col: 1},
-		{row: 3, col: 3},
-		{row: 4, col: 2},
+	blueDots := placeDots([]engine.Coord{
+		{Row: 0, Col: 2},
+		{Row: 1, Col: 1},
+		{Row: 1, Col: 3},
+		{Row: 2, Col: 4},
+		{Row: 3, Col: 1},
+		{Row: 3, Col: 3},
+		{Row: 4, Col: 2},
 	}, bluePlayerIdx)
-	_ = placeDots([]position{
-		{row: 1, col: 2},
-		{row: 2, col: 1},
-		{row: 2, col: 2},
-		{row: 2, col: 3},
-		{row: 0, col: 0},
-		{row: 0, col: 4},
-		{row: 4, col: 0},
+	_ = placeDots([]engine.Coord{
+		{Row: 1, Col: 2},
+		{Row: 2, Col: 1},
+		{Row: 2, Col: 2},
+		{Row: 2, Col: 3},
+		{Row: 0, Col: 0},
+		{Row: 0, Col: 4},
+		{Row: 4, Col: 0},
 	}, redPlayerIdx)
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
@@ -278,40 +270,36 @@ func TestRunFloodFill_HandlesTwoRectanglesSharingCorner(t *testing.T) {
 		redPlayerIdx engine.PlayerIndex = iota
 		bluePlayerIdx
 	)
-	type position struct {
-		row uint8
-		col uint8
-	}
 
 	field := engine.NewGameField(5, 5)
-	bluePositions := []position{
-		{row: 0, col: 0},
-		{row: 0, col: 1},
-		{row: 0, col: 2},
-		{row: 1, col: 0},
-		{row: 1, col: 2},
-		{row: 2, col: 0},
-		{row: 2, col: 1},
-		{row: 2, col: 2},
-		{row: 2, col: 3},
-		{row: 2, col: 4},
-		{row: 3, col: 2},
-		{row: 3, col: 4},
-		{row: 4, col: 2},
-		{row: 4, col: 3},
-		{row: 4, col: 4},
+	blueCoords := []engine.Coord{
+		{Row: 0, Col: 0},
+		{Row: 0, Col: 1},
+		{Row: 0, Col: 2},
+		{Row: 1, Col: 0},
+		{Row: 1, Col: 2},
+		{Row: 2, Col: 0},
+		{Row: 2, Col: 1},
+		{Row: 2, Col: 2},
+		{Row: 2, Col: 3},
+		{Row: 2, Col: 4},
+		{Row: 3, Col: 2},
+		{Row: 3, Col: 4},
+		{Row: 4, Col: 2},
+		{Row: 4, Col: 3},
+		{Row: 4, Col: 4},
 	}
-	for _, position := range bluePositions {
-		field.Dots[position.row][position.col] = field.Dots[position.row][position.col].WithOwner(bluePlayerIdx)
+	for _, coord := range blueCoords {
+		field.Dots[coord.Row][coord.Col] = field.Dots[coord.Row][coord.Col].WithOwner(bluePlayerIdx)
 	}
 
 	enclosedRedDots := make([]engine.Dot, 0, 2)
-	for _, position := range []position{
-		{row: 1, col: 1},
-		{row: 3, col: 3},
+	for _, coord := range []engine.Coord{
+		{Row: 1, Col: 1},
+		{Row: 3, Col: 3},
 	} {
-		dot := field.Dots[position.row][position.col].WithOwner(redPlayerIdx)
-		field.Dots[position.row][position.col] = dot
+		dot := field.Dots[coord.Row][coord.Col].WithOwner(redPlayerIdx)
+		field.Dots[coord.Row][coord.Col] = dot
 		enclosedRedDots = append(enclosedRedDots, dot)
 	}
 
@@ -321,7 +309,6 @@ func TestRunFloodFill_HandlesTwoRectanglesSharingCorner(t *testing.T) {
 			if dot.Owned {
 				continue
 			}
-
 			redDot := dot.WithOwner(redPlayerIdx)
 			field.Dots[rowIdx][colIdx] = redDot
 			freeRedDots = append(freeRedDots, redDot)
@@ -364,31 +351,27 @@ func TestRunFloodFill_HandlesTwoDiamondsSharingCorner(t *testing.T) {
 		redPlayerIdx engine.PlayerIndex = iota
 		bluePlayerIdx
 	)
-	type position struct {
-		row uint8
-		col uint8
-	}
 
 	field := engine.NewGameField(5, 5)
-	for _, position := range []position{
-		{row: 0, col: 2},
-		{row: 1, col: 1},
-		{row: 1, col: 3},
-		{row: 2, col: 2},
-		{row: 3, col: 1},
-		{row: 3, col: 3},
-		{row: 4, col: 2},
+	for _, coord := range []engine.Coord{
+		{Row: 0, Col: 2},
+		{Row: 1, Col: 1},
+		{Row: 1, Col: 3},
+		{Row: 2, Col: 2},
+		{Row: 3, Col: 1},
+		{Row: 3, Col: 3},
+		{Row: 4, Col: 2},
 	} {
-		field.Dots[position.row][position.col] = field.Dots[position.row][position.col].WithOwner(bluePlayerIdx)
+		field.Dots[coord.Row][coord.Col] = field.Dots[coord.Row][coord.Col].WithOwner(bluePlayerIdx)
 	}
 
 	enclosedRedDots := make([]engine.Dot, 0, 2)
-	for _, position := range []position{
-		{row: 1, col: 2},
-		{row: 3, col: 2},
+	for _, coord := range []engine.Coord{
+		{Row: 1, Col: 2},
+		{Row: 3, Col: 2},
 	} {
-		dot := field.Dots[position.row][position.col].WithOwner(redPlayerIdx)
-		field.Dots[position.row][position.col] = dot
+		dot := field.Dots[coord.Row][coord.Col].WithOwner(redPlayerIdx)
+		field.Dots[coord.Row][coord.Col] = dot
 		enclosedRedDots = append(enclosedRedDots, dot)
 	}
 
@@ -438,26 +421,22 @@ func TestRunFloodFill_DoesNotCloseDiamondThroughKilledDot(t *testing.T) {
 		redPlayerIdx engine.PlayerIndex = iota
 		bluePlayerIdx
 	)
-	type position struct {
-		row uint8
-		col uint8
-	}
 
 	field := engine.NewGameField(5, 5)
-	for _, position := range []position{
-		{row: 1, col: 2},
-		{row: 2, col: 1},
-		{row: 2, col: 3},
-		{row: 3, col: 2},
+	for _, coord := range []engine.Coord{
+		{Row: 1, Col: 2},
+		{Row: 2, Col: 1},
+		{Row: 2, Col: 3},
+		{Row: 3, Col: 2},
 	} {
-		field.Dots[position.row][position.col] = field.Dots[position.row][position.col].WithOwner(redPlayerIdx)
+		field.Dots[coord.Row][coord.Col] = field.Dots[coord.Row][coord.Col].WithOwner(redPlayerIdx)
 	}
-	for _, position := range []position{
-		{row: 3, col: 1},
-		{row: 3, col: 3},
-		{row: 4, col: 2},
+	for _, coord := range []engine.Coord{
+		{Row: 3, Col: 1},
+		{Row: 3, Col: 3},
+		{Row: 4, Col: 2},
 	} {
-		field.Dots[position.row][position.col] = field.Dots[position.row][position.col].WithOwner(bluePlayerIdx)
+		field.Dots[coord.Row][coord.Col] = field.Dots[coord.Row][coord.Col].WithOwner(bluePlayerIdx)
 	}
 	field.Dots[2][2] = field.Dots[2][2].WithOwner(bluePlayerIdx).WithKilled()
 
@@ -550,10 +529,6 @@ func TestRunFloodFill_ClassifiesRandomSevenBySevenGrid(t *testing.T) {
 		redPlayerIdx engine.PlayerIndex = iota
 		bluePlayerIdx
 	)
-	type position struct {
-		row uint8
-		col uint8
-	}
 
 	allocation := []string{
 		"RBRRRBR",
@@ -575,22 +550,22 @@ func TestRunFloodFill_ClassifiesRandomSevenBySevenGrid(t *testing.T) {
 		}
 	}
 
-	trappedPositions := map[position]struct{}{
-		{row: 1, col: 5}: {},
-		{row: 2, col: 4}: {},
-		{row: 2, col: 5}: {},
-		{row: 3, col: 1}: {},
-		{row: 3, col: 5}: {},
-		{row: 4, col: 3}: {},
-		{row: 5, col: 4}: {},
+	trappedCoords := map[engine.Coord]struct{}{
+		{Row: 1, Col: 5}: {},
+		{Row: 2, Col: 4}: {},
+		{Row: 2, Col: 5}: {},
+		{Row: 3, Col: 1}: {},
+		{Row: 3, Col: 5}: {},
+		{Row: 4, Col: 3}: {},
+		{Row: 5, Col: 4}: {},
 	}
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
-	trappedRedDots := make([]engine.Dot, 0, len(trappedPositions))
-	escapedRedDots := make([]engine.Dot, 0, len(redDots)-len(trappedPositions))
+	trappedRedDots := make([]engine.Dot, 0, len(trappedCoords))
+	escapedRedDots := make([]engine.Dot, 0, len(redDots)-len(trappedCoords))
 	for _, dot := range redDots {
-		_, isTrapped := trappedPositions[position{row: dot.Row, col: dot.Col}]
+		_, isTrapped := trappedCoords[engine.Coord{Row: dot.Row, Col: dot.Col}]
 		if isTrapped {
 			trappedRedDots = append(trappedRedDots, dot)
 			continue
@@ -630,10 +605,6 @@ func TestRunFloodFill_ClassifiesSwappedRandomSevenBySevenGrid(t *testing.T) {
 		redPlayerIdx engine.PlayerIndex = iota
 		bluePlayerIdx
 	)
-	type position struct {
-		row uint8
-		col uint8
-	}
 
 	allocation := []string{
 		"RBBRBBR",
@@ -655,24 +626,24 @@ func TestRunFloodFill_ClassifiesSwappedRandomSevenBySevenGrid(t *testing.T) {
 		}
 	}
 
-	trappedPositions := map[position]struct{}{
-		{row: 1, col: 2}: {},
-		{row: 1, col: 4}: {},
-		{row: 2, col: 2}: {},
-		{row: 3, col: 1}: {},
-		{row: 3, col: 2}: {},
-		{row: 4, col: 3}: {},
-		{row: 4, col: 4}: {},
-		{row: 5, col: 2}: {},
-		{row: 5, col: 3}: {},
+	trappedCoords := map[engine.Coord]struct{}{
+		{Row: 1, Col: 2}: {},
+		{Row: 1, Col: 4}: {},
+		{Row: 2, Col: 2}: {},
+		{Row: 3, Col: 1}: {},
+		{Row: 3, Col: 2}: {},
+		{Row: 4, Col: 3}: {},
+		{Row: 4, Col: 4}: {},
+		{Row: 5, Col: 2}: {},
+		{Row: 5, Col: 3}: {},
 	}
 	redDots := field.Find(func(dot engine.Dot) bool {
 		return dot.Owned && dot.Owner == redPlayerIdx
 	})
-	trappedRedDots := make([]engine.Dot, 0, len(trappedPositions))
-	escapedRedDots := make([]engine.Dot, 0, len(redDots)-len(trappedPositions))
+	trappedRedDots := make([]engine.Dot, 0, len(trappedCoords))
+	escapedRedDots := make([]engine.Dot, 0, len(redDots)-len(trappedCoords))
 	for _, dot := range redDots {
-		_, isTrapped := trappedPositions[position{row: dot.Row, col: dot.Col}]
+		_, isTrapped := trappedCoords[engine.Coord{Row: dot.Row, Col: dot.Col}]
 		if isTrapped {
 			trappedRedDots = append(trappedRedDots, dot)
 			continue

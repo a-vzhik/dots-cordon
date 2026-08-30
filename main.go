@@ -17,6 +17,11 @@ import (
 const (
 	gameFieldWidth  uint8 = 7
 	gameFieldHeight uint8 = 7
+
+	closeMoveRadius   = 2
+	closeMoveAttempts = 3
+	wideMoveRadius    = 4
+	wideMoveAttempts  = 2
 )
 
 func main() {
@@ -41,20 +46,22 @@ func main() {
 
 func runGame(game *engine.Game, input *bufio.Scanner, output io.Writer) error {
 	currentPlayer := engine.PlayerIndex(0)
+	var lastMove *engine.Coord
 
 	for {
 		printGame(output, game)
 
 		var (
-			result *engine.MoveResult
-			err    error
+			result      *engine.MoveResult
+			currentMove engine.Coord
+			err         error
 		)
 
 		switch game.Players[currentPlayer].PlayerType {
 		case engine.Human:
-			result, err = makeHumanMove(game, currentPlayer, input, output)
+			result, currentMove, err = makeHumanMove(game, currentPlayer, input, output)
 		case engine.RandomAI:
-			result, err = makeRandomMove(game, currentPlayer, output)
+			result, currentMove, err = makeRandomMove(game, currentPlayer, lastMove, output)
 		default:
 			return fmt.Errorf("unsupported player type: %d", game.Players[currentPlayer].PlayerType)
 		}
@@ -73,6 +80,7 @@ func runGame(game *engine.Game, input *bufio.Scanner, output io.Writer) error {
 			return nil
 		}
 
+		lastMove = &currentMove
 		currentPlayer = currentPlayer.EnemyIndex()
 	}
 }
@@ -92,11 +100,11 @@ func makeHumanMove(
 	playerIndex engine.PlayerIndex,
 	input *bufio.Scanner,
 	output io.Writer,
-) (*engine.MoveResult, error) {
+) (*engine.MoveResult, engine.Coord, error) {
 	for {
 		fmt.Fprint(output, "Your move (<row> <col>): ")
 		if !input.Scan() {
-			return nil, scannerError(input)
+			return nil, engine.Coord{}, scannerError(input)
 		}
 
 		row, col, err := parseCoordinates(input.Text())
@@ -111,7 +119,7 @@ func makeHumanMove(
 			continue
 		}
 
-		return result, nil
+		return result, engine.Coord{Row: row, Col: col}, nil
 	}
 }
 
@@ -137,21 +145,83 @@ func parseCoordinates(input string) (uint8, uint8, error) {
 func makeRandomMove(
 	game *engine.Game,
 	playerIndex engine.PlayerIndex,
+	lastOpponentMove *engine.Coord,
 	output io.Writer,
-) (*engine.MoveResult, error) {
-	for {
-		row := uint8(rand.Intn(int(game.GameField.Height)))
-		col := uint8(rand.Intn(int(game.GameField.Width)))
+) (*engine.MoveResult, engine.Coord, error) {
+	return makeRandomMoveWithIntn(game, playerIndex, lastOpponentMove, output, rand.Intn)
+}
 
-		fmt.Fprintf(output, "RandomAI move: %d %d\n", row, col)
-
-		result, err := game.Move(playerIndex, row, col)
-		if err != nil {
-			continue
+func makeRandomMoveWithIntn(
+	game *engine.Game,
+	playerIndex engine.PlayerIndex,
+	lastOpponentMove *engine.Coord,
+	output io.Writer,
+	intn func(int) int,
+) (*engine.MoveResult, engine.Coord, error) {
+	if lastOpponentMove != nil {
+		attempts := []struct {
+			radius uint8
+			count  int
+		}{
+			{radius: closeMoveRadius, count: closeMoveAttempts},
+			{radius: wideMoveRadius, count: wideMoveAttempts},
 		}
 
-		return result, nil
+		for _, attempt := range attempts {
+			for range attempt.count {
+				row, col := randomCoordinatesNear(
+					*lastOpponentMove,
+					attempt.radius,
+					game.GameField.Height,
+					game.GameField.Width,
+					intn,
+				)
+
+				result, err := tryRandomMove(game, playerIndex, row, col, output)
+				if err == nil {
+					return result, engine.Coord{Row: row, Col: col}, nil
+				}
+			}
+		}
 	}
+
+	for {
+		row := uint8(intn(int(game.GameField.Height)))
+		col := uint8(intn(int(game.GameField.Width)))
+
+		result, err := tryRandomMove(game, playerIndex, row, col, output)
+		if err == nil {
+			return result, engine.Coord{Row: row, Col: col}, nil
+		}
+	}
+}
+
+func randomCoordinatesNear(
+	center engine.Coord,
+	radius uint8,
+	height uint8,
+	width uint8,
+	intn func(int) int,
+) (uint8, uint8) {
+	minRow := max(0, int(center.Row)-int(radius))
+	maxRow := min(int(height)-1, int(center.Row)+int(radius))
+	minCol := max(0, int(center.Col)-int(radius))
+	maxCol := min(int(width)-1, int(center.Col)+int(radius))
+
+	row := minRow + intn(maxRow-minRow+1)
+	col := minCol + intn(maxCol-minCol+1)
+	return uint8(row), uint8(col)
+}
+
+func tryRandomMove(
+	game *engine.Game,
+	playerIndex engine.PlayerIndex,
+	row uint8,
+	col uint8,
+	output io.Writer,
+) (*engine.MoveResult, error) {
+	fmt.Fprintf(output, "RandomAI move: %d %d\n", row, col)
+	return game.Move(playerIndex, row, col)
 }
 
 func waitForEnter(input *bufio.Scanner, output io.Writer) error {

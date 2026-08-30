@@ -9,19 +9,14 @@ import (
 
 var EmptyValue any
 
-type CordonIndexKey struct {
-	Row uint8
-	Col uint8
-}
-
 type CordonPathFinder struct {
-	Index   map[CordonIndexKey]any
-	Ordered []CordonIndexKey
+	Index   map[Coord]any
+	Ordered []Coord
 }
 
 func NewCordonPathFinder() *CordonPathFinder {
 	return &CordonPathFinder{
-		Index: make(map[CordonIndexKey]any),
+		Index: make(map[Coord]any),
 	}
 }
 
@@ -58,7 +53,7 @@ func (cpf *CordonPathFinder) BuildIndex(floodFillGrid [][]FloodFillCellState) {
 				continue
 			}
 
-			key := CordonIndexKey{
+			key := Coord{
 				Row: rowIdx,
 				Col: colIdx,
 			}
@@ -69,7 +64,7 @@ func (cpf *CordonPathFinder) BuildIndex(floodFillGrid [][]FloodFillCellState) {
 	slog.Debug(fmt.Sprintf("Cordon index: %+v", cpf.Index))
 }
 
-func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [][]CordonIndexKey {
+func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [][]Coord {
 	// Firstly I need to build an index of all BLOCKED dots which are on the outer edge.
 	cpf.BuildIndex(floodFillGrid)
 
@@ -80,16 +75,16 @@ func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [
 	// Each iteration extracts 1 cordon. This cordon may contain joints which also belong to another cordon.
 	// Non-joints are deleted from the index before the next run.
 	// The loop stops if the index is empty or no cordon was extracted during the run.
-	capturingCordons := make([][]CordonIndexKey, 0)
+	capturingCordons := make([][]Coord, 0)
 	for {
-		startFromKey, found := findTopLeftCordonIndexKey(cpf.Index)
+		startFromKey, found := findTopLeftCoord(cpf.Index)
 		if !found {
 			break
 		}
 
 		slog.Debug(fmt.Sprintf("Index:  %+v", cpf.Index))
 
-		cpf.Ordered = make([]CordonIndexKey, 0, len(cpf.Index))
+		cpf.Ordered = make([]Coord, 0, len(cpf.Index))
 		cordonFound := cpf.WalkCordonStep(startFromKey, startFromKey)
 		if !cordonFound {
 			// This run has not found any cordon - give up.
@@ -123,7 +118,7 @@ func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [
 	return capturingCordons
 }
 
-func (cpf *CordonPathFinder) UpdateIndex(extractedCordon []CordonIndexKey) {
+func (cpf *CordonPathFinder) UpdateIndex(extractedCordon []Coord) {
 	// Delete all cordon keys from the index.
 	for _, key := range extractedCordon {
 		delete(cpf.Index, key)
@@ -131,7 +126,7 @@ func (cpf *CordonPathFinder) UpdateIndex(extractedCordon []CordonIndexKey) {
 
 	// Check if we deleted any cordon keys which have remaining neighbours.
 	// If yes, remember them.
-	jointsToRestore := make([]CordonIndexKey, 0)
+	jointsToRestore := make([]Coord, 0)
 	for _, key := range extractedCordon {
 		neighbours := existingNeighboursOf(key, cpf.Index)
 		if len(neighbours) == 0 {
@@ -146,11 +141,11 @@ func (cpf *CordonPathFinder) UpdateIndex(extractedCordon []CordonIndexKey) {
 	}
 }
 
-func (cordon *CordonPathFinder) WalkCordonStep(toKey CordonIndexKey, fromKey CordonIndexKey) bool {
+func (cordon *CordonPathFinder) WalkCordonStep(toKey Coord, fromKey Coord) bool {
 	cordon.Ordered = append(cordon.Ordered, toKey)
 
 	existingNeighbours := existingNeighboursOf(toKey, cordon.Index)
-	slices.SortStableFunc(existingNeighbours, func(k1, k2 CordonIndexKey) int {
+	slices.SortStableFunc(existingNeighbours, func(k1, k2 Coord) int {
 		dc1 := toKey.Col - k1.Col
 		dr1 := toKey.Row - k1.Row
 		distance1 := dc1*dc1 + dr1*dr1
@@ -182,12 +177,12 @@ func (cordon *CordonPathFinder) WalkCordonStep(toKey CordonIndexKey, fromKey Cor
 	return false
 }
 
-func findTopLeftCordonIndexKey(source map[CordonIndexKey]any) (CordonIndexKey, bool) {
+func findTopLeftCoord(source map[Coord]any) (Coord, bool) {
 	if len(source) == 0 {
-		return CordonIndexKey{}, false
+		return Coord{}, false
 	}
 
-	var minKey *CordonIndexKey
+	var minKey *Coord
 
 	for k := range source {
 		if minKey == nil {
@@ -202,8 +197,8 @@ func findTopLeftCordonIndexKey(source map[CordonIndexKey]any) (CordonIndexKey, b
 	return *minKey, true
 }
 
-func allNeighboursOf(currentKey CordonIndexKey) []CordonIndexKey {
-	neighbours := []CordonIndexKey{
+func allNeighboursOf(currentKey Coord) []Coord {
+	neighbours := []Coord{
 		{Row: currentKey.Row - 1, Col: currentKey.Col - 1},
 		{Row: currentKey.Row - 1, Col: currentKey.Col},
 		{Row: currentKey.Row - 1, Col: currentKey.Col + 1},
@@ -217,10 +212,10 @@ func allNeighboursOf(currentKey CordonIndexKey) []CordonIndexKey {
 	return neighbours
 }
 
-func existingNeighboursOf(currentKey CordonIndexKey, cordonIndex map[CordonIndexKey]any) []CordonIndexKey {
+func existingNeighboursOf(currentKey Coord, cordonIndex map[Coord]any) []Coord {
 	neighbours := allNeighboursOf(currentKey)
 
-	existingNeighbours := slices.DeleteFunc(neighbours, func(n CordonIndexKey) bool {
+	existingNeighbours := slices.DeleteFunc(neighbours, func(n Coord) bool {
 		_, found := cordonIndex[n]
 		return !found
 	})
@@ -228,7 +223,7 @@ func existingNeighboursOf(currentKey CordonIndexKey, cordonIndex map[CordonIndex
 	return existingNeighbours
 }
 
-func trimToClosedCordon(extractedCordon []CordonIndexKey) []CordonIndexKey {
+func trimToClosedCordon(extractedCordon []Coord) []Coord {
 	trimmedCordon := extractedCordon
 
 	for trimmedCordon[0] != trimmedCordon[len(trimmedCordon)-1] {

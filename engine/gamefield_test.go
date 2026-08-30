@@ -92,7 +92,7 @@ func TestGameFieldFind(t *testing.T) {
 				return dot.Row == 1 && dot.Col == 2
 			},
 			want: []Dot{
-				{Col: 2, Row: 1},
+				{Coord: Coord{Col: 2, Row: 1}},
 			},
 		},
 		{
@@ -101,9 +101,9 @@ func TestGameFieldFind(t *testing.T) {
 				return dot.Row == 1
 			},
 			want: []Dot{
-				{Col: 0, Row: 1},
-				{Col: 1, Row: 1},
-				{Col: 2, Row: 1},
+				{Coord: Coord{Col: 0, Row: 1}},
+				{Coord: Coord{Col: 1, Row: 1}},
+				{Coord: Coord{Col: 2, Row: 1}},
 			},
 		},
 	}

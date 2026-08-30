@@ -31,14 +31,14 @@ func setEscapeCandidatesToState(floodFillGrid [][]FloodFillCellState, state Floo
 }
 
 func setPotentiallyBlockedCordonsToBlocked(floodFillGrid [][]FloodFillCellState) {
-	potentialCordon := make([]CordonIndexKey, 0)
+	potentialCordon := make([]Coord, 0)
 	for i := range floodFillGrid {
 		for j := range floodFillGrid[i] {
 			if floodFillGrid[i][j] != FloodFillCellStatePotentialBlocked {
 				continue
 			}
 
-			key := CordonIndexKey{
+			key := Coord{
 				Row: uint8(i),
 				Col: uint8(j),
 			}

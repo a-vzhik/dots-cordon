@@ -81,7 +81,7 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 			return false
 		}
 
-		fourNeigbours := []CordonIndexKey{
+		fourNeigbours := []Coord{
 			{Row: dot.Row - 1, Col: dot.Col},
 			{Row: dot.Row + 1, Col: dot.Col},
 			{Row: dot.Row, Col: dot.Col - 1},
@@ -105,7 +105,7 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		}
 
 		for _, cordon := range cordons {
-			if slices.Contains(cordon, CordonIndexKey{Row: dot.Row, Col: dot.Col}) {
+			if slices.Contains(cordon, Coord{Row: dot.Row, Col: dot.Col}) {
 				return false
 			}
 		}

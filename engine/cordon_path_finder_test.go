@@ -35,7 +35,7 @@ func TestFindCordons_Diamond(t *testing.T) {
 
 	require.Len(t, cordons, 1)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 1, Col: 2},
 		{Row: 2, Col: 3},
 		{Row: 3, Col: 2},
@@ -66,7 +66,7 @@ func TestFindCordons_FullyBlockedGrid(t *testing.T) {
 
 	require.Len(t, cordons, 1)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 0, Col: 0},
 		{Row: 0, Col: 1},
 		{Row: 0, Col: 2},
@@ -114,7 +114,7 @@ func TestFindCordons_AsymmetricBlob(t *testing.T) {
 
 	require.Len(t, cordons, 1)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 1, Col: 2},
 		{Row: 1, Col: 3},
 		{Row: 1, Col: 4},
@@ -175,7 +175,7 @@ func TestFindCordons_ZigzagSShape(t *testing.T) {
 
 	require.Len(t, cordons, 2)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 1, Col: 7},
 		{Row: 0, Col: 8},
 		{Row: 1, Col: 9},
@@ -183,7 +183,7 @@ func TestFindCordons_ZigzagSShape(t *testing.T) {
 		{Row: 1, Col: 7},
 	}, cordons[0])
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 0, Col: 2},
 		{Row: 0, Col: 3},
 		{Row: 0, Col: 4},
@@ -255,7 +255,7 @@ func TestFindCordons_TwoRectanglesSharingCorner(t *testing.T) {
 
 	require.Len(t, cordons, 1)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 0, Col: 0},
 		{Row: 0, Col: 1},
 		{Row: 1, Col: 2},
@@ -300,7 +300,7 @@ func TestFindCordons_TwoDiamondsSharingCorner(t *testing.T) {
 
 	require.Len(t, cordons, 2)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 0, Col: 2},
 		{Row: 1, Col: 3},
 		{Row: 2, Col: 2},
@@ -308,7 +308,7 @@ func TestFindCordons_TwoDiamondsSharingCorner(t *testing.T) {
 		{Row: 0, Col: 2},
 	}, cordons[0])
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 2, Col: 2},
 		{Row: 3, Col: 3},
 		{Row: 4, Col: 2},
@@ -345,7 +345,7 @@ func TestFindCordons_FourDiamondsSharingCenter(t *testing.T) {
 
 	require.Len(t, cordons, 1)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 0, Col: 2},
 		{Row: 1, Col: 3},
 		{Row: 2, Col: 4},
@@ -391,7 +391,7 @@ func TestFindCordons_TwoRaggedPocketsSharingCorner(t *testing.T) {
 
 	require.Len(t, cordons, 2)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 0, Col: 4},
 		{Row: 0, Col: 5},
 		{Row: 0, Col: 6},
@@ -405,7 +405,7 @@ func TestFindCordons_TwoRaggedPocketsSharingCorner(t *testing.T) {
 		{Row: 0, Col: 4},
 	}, cordons[0])
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 3, Col: 4},
 		{Row: 4, Col: 5},
 		{Row: 5, Col: 4},
@@ -456,7 +456,7 @@ func TestFindCordons_BalancedRandomBoard(t *testing.T) {
 
 	require.Len(t, cordons, 3)
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 0, Col: 2},
 		{Row: 0, Col: 3},
 		{Row: 1, Col: 4},
@@ -467,7 +467,7 @@ func TestFindCordons_BalancedRandomBoard(t *testing.T) {
 		{Row: 0, Col: 2},
 	}, cordons[0])
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 6, Col: 5},
 		{Row: 5, Col: 5},
 		{Row: 4, Col: 4},
@@ -481,7 +481,7 @@ func TestFindCordons_BalancedRandomBoard(t *testing.T) {
 		{Row: 6, Col: 5},
 	}, cordons[1])
 
-	assert.Equal(t, []engine.CordonIndexKey{
+	assert.Equal(t, []engine.Coord{
 		{Row: 4, Col: 6},
 		{Row: 5, Col: 7},
 		{Row: 6, Col: 6},

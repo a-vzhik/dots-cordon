@@ -16,10 +16,10 @@ func TestJsonGameRecorderAppendsActions(t *testing.T) {
 	moveResult := MoveResult{
 		ScoredPoints: 2,
 		Cordons: [][]Dot{{
-			{Row: 0, Col: 1, Owned: true, Owner: 0},
+			{Coord: Coord{Row: 0, Col: 1}, Owned: true, Owner: 0},
 		}},
 		KilledDots: []Dot{
-			{Row: 1, Col: 1, Owned: true, Owner: 1},
+			{Coord: Coord{Row: 1, Col: 1}, Owned: true, Owner: 1},
 		},
 	}
 	NewJsonGameRecorder(filePath).RecordMove(PlayerIndex(0), 0, 1, moveResult)

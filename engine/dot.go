@@ -1,8 +1,12 @@
 package engine
 
+type Coord struct {
+	Col uint8
+	Row uint8
+}
+
 type Dot struct {
-	Col    uint8
-	Row    uint8
+	Coord
 	Owned  bool
 	Owner  PlayerIndex
 	Killed bool

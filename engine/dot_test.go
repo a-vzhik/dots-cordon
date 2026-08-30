@@ -16,17 +16,20 @@ func TestDotTransformationsDoNotMutateSource(t *testing.T) {
 		{
 			name: "with owner",
 			source: Dot{
-				Col:    2,
-				Row:    3,
+				Coord: Coord{
+					Col: 2,
+					Row: 3,
+				},
 				Killed: true,
 			},
 			apply: func(dot Dot) Dot {
 				return dot.WithOwner(PlayerIndex(1))
 			},
 			want: Dot{
-				Col:    2,
-				Row:    3,
-				Owned:  true,
+				Coord: Coord{
+					Col: 2,
+					Row: 3,
+				}, Owned: true,
 				Owner:  PlayerIndex(1),
 				Killed: true,
 			},
@@ -34,18 +37,20 @@ func TestDotTransformationsDoNotMutateSource(t *testing.T) {
 		{
 			name: "with killed",
 			source: Dot{
-				Col:   4,
-				Row:   5,
-				Owned: true,
+				Coord: Coord{
+					Col: 4,
+					Row: 5,
+				}, Owned: true,
 				Owner: PlayerIndex(1),
 			},
 			apply: func(dot Dot) Dot {
 				return dot.WithKilled()
 			},
 			want: Dot{
-				Col:    4,
-				Row:    5,
-				Owned:  true,
+				Coord: Coord{
+					Col: 4,
+					Row: 5,
+				}, Owned: true,
 				Owner:  PlayerIndex(1),
 				Killed: true,
 			},

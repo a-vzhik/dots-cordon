@@ -17,8 +17,10 @@ func NewGameField(width uint8, height uint8) *GameField {
 		row := make([]Dot, int(width))
 		for colIdx := range row {
 			row[colIdx] = Dot{
-				Col: uint8(colIdx),
-				Row: uint8(rowIdx),
+				Coord: Coord{
+					Col: uint8(colIdx),
+					Row: uint8(rowIdx),
+				},
 			}
 		}
 
@@ -62,6 +64,10 @@ func (gf *GameField) ToString() string {
 	}
 
 	return result.String()
+}
+
+func (gf *GameField) GetAt(coord Coord) Dot {
+	return gf.Dots[coord.Row][coord.Col]
 }
 
 func (gf *GameField) Transform(row uint8, col uint8, applyFunc func(Dot) Dot) {
