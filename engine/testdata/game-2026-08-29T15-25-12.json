@@ -782,55 +782,9 @@
     "row": 2,
     "col": 4,
     "result": {
-      "ScoredPoints": 1,
-      "Cordons": [
-        [
-          {
-            "Col": 4,
-            "Row": 0,
-            "Owned": true,
-            "Owner": 1,
-            "Killed": false
-          },
-          {
-            "Col": 5,
-            "Row": 1,
-            "Owned": true,
-            "Owner": 1,
-            "Killed": false
-          },
-          {
-            "Col": 4,
-            "Row": 2,
-            "Owned": true,
-            "Owner": 1,
-            "Killed": false
-          },
-          {
-            "Col": 3,
-            "Row": 1,
-            "Owned": true,
-            "Owner": 1,
-            "Killed": true
-          },
-          {
-            "Col": 4,
-            "Row": 0,
-            "Owned": true,
-            "Owner": 1,
-            "Killed": false
-          }
-        ]
-      ],
-      "KilledDots": [
-        {
-          "Col": 4,
-          "Row": 1,
-          "Owned": true,
-          "Owner": 0,
-          "Killed": false
-        }
-      ],
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
       "IsTerminal": true
     }
   }
