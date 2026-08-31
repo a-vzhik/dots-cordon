@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -34,7 +35,7 @@ func TestGameReplay_CompleteGame1(t *testing.T) {
 		t,
 		"game-2026-08-29T15-25-12.json",
 	)
-	assert.Equal(t, 4, captureMoveCount)
+	assert.Equal(t, 3, captureMoveCount)
 }
 
 func TestGameReplay_CompleteGame2(t *testing.T) {
@@ -53,6 +54,14 @@ func TestGameReplay_NoCaptures(t *testing.T) {
 	assert.Equal(t, 0, captureMoveCount)
 }
 
+func TestGameReplay_WrongCaptureRegression(t *testing.T) {
+	_, captureMoveCount := replayRecordedGameAndCountCaptures(
+		t,
+		"game-2026-08-30T14-36-49.json",
+	)
+	assert.Equal(t, 4, captureMoveCount)
+}
+
 func TestGameReplay_MoveAtFiveFive(t *testing.T) {
 	game, _ := replayRecordedGameAndCountCaptures(t, "game-2026-08-23T22-47-25.json")
 
@@ -60,6 +69,12 @@ func TestGameReplay_MoveAtFiveFive(t *testing.T) {
 
 	_, err := game.Move(PlayerIndex(1), 5, 5)
 	require.NoError(t, err)
+}
+
+func TestGameReplay_MissedCounterCaptureRegression(t *testing.T) {
+	_, totalCaptures := replayRecordedGameAndCountCaptures(t, "game-2026-08-30T16-00-39.json")
+
+	assert.Equal(t, 3, totalCaptures)
 }
 
 func replayRecordedGameAndCountCaptures(t *testing.T, fileName string) (*Game, int) {
@@ -82,7 +97,11 @@ func replayRecordedGameAndCountCaptures(t *testing.T, fileName string) (*Game, i
 	captureMoveCount := 0
 	for actionIdx, action := range actions[1:] {
 		require.Equal(t, "move", action.Type, "action %d", actionIdx+1)
+		slog.Info(fmt.Sprintf("Move player %d: %d, %d", action.PlayerIndex, action.Row, action.Col))
 		result, err := game.Move(action.PlayerIndex, action.Row, action.Col)
+
+		slog.Info(game.GameField.ToString())
+
 		require.NoError(
 			t,
 			err,
