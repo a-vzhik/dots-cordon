@@ -134,6 +134,11 @@ func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [
 			break
 		}
 
+		if deadEnd {
+			delete(cpf.Index, startFromKey)
+			continue
+		}
+
 		extractedCordon := cpf.Ordered
 		if len(extractedCordon) == 0 {
 			// This run has not found any cordon - give up.
