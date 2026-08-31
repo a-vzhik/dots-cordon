@@ -43,11 +43,8 @@ func setPotentiallyBlockedCordonsToBlocked(floodFillGrid [][]FloodFillCellState)
 				Col: uint8(j),
 			}
 
-			neighbours := allNeighboursOf(key)
+			neighbours := eightNeighbours(key, uint8(len(floodFillGrid)), uint8(len(floodFillGrid[i])))
 			for _, n := range neighbours {
-				if n.Col < 0 || n.Row < 0 || n.Row >= uint8(len(floodFillGrid)) || n.Col >= uint8(len(floodFillGrid[i])) {
-					continue
-				}
 				if floodFillGrid[n.Row][n.Col] == FloodFillCellStateBlocked {
 					potentialCordon = append(potentialCordon, key)
 				}
@@ -131,7 +128,7 @@ func RunFloodFill(gameField *GameField, defenderDots []Dot, defenderIdx PlayerIn
 			setEscapeCandidatesToState(floodFillGrid, FloodFillCellStateBlocked)
 		}
 	}
-	setPotentiallyBlockedCordonsToBlocked(floodFillGrid)
+	//setPotentiallyBlockedCordonsToBlocked(floodFillGrid)
 	return floodFillGrid
 }
 
@@ -139,7 +136,7 @@ func HasDotEscaped(gameField *GameField, floodFillGrid [][]FloodFillCellState, d
 	knownState := floodFillGrid[currRowIdx][currColIdx]
 	switch knownState {
 	case FloodFillCellStateKilled:
-		return false
+		return true
 	case FloodFillCellStateBlocked:
 		return false
 	case FloodFillCellStateEscaped:
@@ -152,21 +149,20 @@ func HasDotEscaped(gameField *GameField, floodFillGrid [][]FloodFillCellState, d
 
 	dot := gameField.Dots[currRowIdx][currColIdx]
 	if dot.Killed {
-		if dot.IsOwnedBy(defenderIdx) {
-			floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateKilled
-		} else {
-			floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
-		}
-
-		return false
-	}
-	if !dot.Owned {
+		/*
+			if dot.IsOwnedBy(defenderIdx) {
+				floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateKilled
+			} else {
+				floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
+			}
+		*/
 		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
-	}
-	if dot.Owned && dot.Owner == defenderIdx {
+		// return false
+	} else if !dot.Owned {
 		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
-	}
-	if dot.Owned && dot.Owner != defenderIdx {
+	} else if dot.Owned && dot.Owner == defenderIdx {
+		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStateEscapeCandidate
+	} else if dot.Owned && dot.Owner != defenderIdx {
 		floodFillGrid[currRowIdx][currColIdx] = FloodFillCellStatePotentialBlocked
 		slog.Debug(fmt.Sprintf("found the other player: %d, %d", currRowIdx, currColIdx))
 		return false

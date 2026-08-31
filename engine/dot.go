@@ -1,8 +1,8 @@
 package engine
 
 type Coord struct {
-	Col uint8
 	Row uint8
+	Col uint8
 }
 
 type Dot struct {

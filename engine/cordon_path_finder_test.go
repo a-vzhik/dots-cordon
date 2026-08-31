@@ -1,6 +1,8 @@
 package engine_test
 
 import (
+	"fmt"
+	"log/slog"
 	"testing"
 
 	"github.com/a-vzhik/dots-cordon/engine"
@@ -21,12 +23,13 @@ func TestFindCordons_Diamond(t *testing.T) {
 	const (
 		N = engine.FloodFillCellStateNone
 		B = engine.FloodFillCellStateBlocked
+		P = engine.FloodFillCellStatePotentialBlocked
 	)
 	floodFillGrid := [][]engine.FloodFillCellState{
 		{N, N, N, N, N},
-		{N, N, B, N, N},
-		{N, B, B, B, N},
-		{N, N, B, N, N},
+		{N, N, P, N, N},
+		{N, P, B, P, N},
+		{N, N, P, N, N},
 		{N, N, N, N, N},
 	}
 
@@ -53,12 +56,15 @@ func TestFindCordons_FullyBlockedGrid(t *testing.T) {
 	// r3    B  B  B  B
 	//
 	// B = blue dot, R = red dot, . = empty.
-	const B = engine.FloodFillCellStateBlocked
+	const (
+		B = engine.FloodFillCellStateBlocked
+		P = engine.FloodFillCellStatePotentialBlocked
+	)
 	floodFillGrid := [][]engine.FloodFillCellState{
-		{B, B, B, B},
-		{B, B, B, B},
-		{B, B, B, B},
-		{B, B, B, B},
+		{P, P, P, P},
+		{P, B, B, P},
+		{P, B, B, P},
+		{P, P, P, P},
 	}
 
 	pathFinder := engine.NewCordonPathFinder()
@@ -98,14 +104,15 @@ func TestFindCordons_AsymmetricBlob(t *testing.T) {
 	const (
 		N = engine.FloodFillCellStateNone
 		B = engine.FloodFillCellStateBlocked
+		P = engine.FloodFillCellStatePotentialBlocked
 	)
 	floodFillGrid := [][]engine.FloodFillCellState{
 		{N, N, N, N, N, N, N},
-		{N, N, B, B, B, N, N},
-		{N, B, B, B, B, B, N},
-		{N, B, B, B, B, B, N},
-		{N, B, B, B, B, B, B},
-		{N, N, B, B, B, B, N},
+		{N, N, P, P, P, N, N},
+		{N, P, B, B, B, P, N},
+		{N, P, B, B, B, P, N},
+		{N, P, B, B, B, B, P},
+		{N, N, P, P, P, P, N},
 		{N, N, N, N, N, N, N},
 	}
 
@@ -241,36 +248,113 @@ func TestFindCordons_TwoRectanglesSharingCorner(t *testing.T) {
 	const (
 		B = engine.FloodFillCellStateBlocked
 		E = engine.FloodFillCellStateEscaped
+		P = engine.FloodFillCellStatePotentialBlocked
 	)
 	floodFillGrid := [][]engine.FloodFillCellState{
-		{B, B, B, E, E},
-		{B, B, B, E, E},
-		{B, B, B, B, B},
-		{E, E, B, B, B},
-		{E, E, B, B, B},
+		{P, P, P, E, E},
+		{P, B, P, E, E},
+		{P, P, P, P, P},
+		{E, E, P, B, P},
+		{E, E, P, P, P},
+	}
+
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
+
+	slog.Info(fmt.Sprintf("%+v", cordons))
+
+	require.Len(t, cordons, 2)
+
+	assert.Equal(t, [][]engine.Coord{
+		{
+			{Row: 2, Col: 2},
+			{Row: 2, Col: 3},
+			{Row: 2, Col: 4},
+			{Row: 3, Col: 4},
+			{Row: 4, Col: 4},
+			{Row: 4, Col: 3},
+			{Row: 4, Col: 2},
+			{Row: 3, Col: 2},
+			{Row: 2, Col: 2},
+		},
+		{
+			{Row: 0, Col: 0},
+			{Row: 0, Col: 1},
+			{Row: 0, Col: 2},
+			{Row: 1, Col: 2},
+			{Row: 2, Col: 2},
+			{Row: 2, Col: 1},
+			{Row: 1, Col: 0},
+			{Row: 0, Col: 0},
+		},
+	}, cordons)
+}
+
+func Test_WrongCordonRegression(t *testing.T) {
+	/*
+	   2026/08/30 14:40:20 INFO E E . E P . .
+	   2026/08/30 14:40:20 INFO . . . P B P .
+	   2026/08/30 14:40:20 INFO E P P P B P .
+	   2026/08/30 14:40:20 INFO P B B B B E E
+	   2026/08/30 14:40:20 INFO P B B B B E E
+	   2026/08/30 14:40:20 INFO E B B B . . E
+	   2026/08/30 14:40:20 INFO E E P E E E .
+	*/
+	const (
+		N = engine.FloodFillCellStateNone
+		B = engine.FloodFillCellStateBlocked
+		E = engine.FloodFillCellStateEscaped
+		P = engine.FloodFillCellStatePotentialBlocked
+	)
+	floodFillGrid := [][]engine.FloodFillCellState{
+		{E, E, N, E, P, N, N},
+		{N, N, N, P, B, P, N},
+		{E, P, P, P, B, P, N},
+		{P, B, B, B, B, E, E},
+		{P, B, B, B, B, E, E},
+		{E, B, B, B, N, N, E},
+		{E, E, P, E, E, E, N},
+	}
+
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
+
+	slog.Info(fmt.Sprintf("Cordons: %+v", cordons))
+
+	require.Len(t, cordons, 0)
+}
+
+func Test_123(t *testing.T) {
+	/*
+		2026/08/30 13:39:20 INFO Floodfill Grid:
+		2026/08/30 13:39:20 INFO E . E P E P .
+		2026/08/30 13:39:20 INFO E . E E E E E
+		2026/08/30 13:39:20 INFO . P E E E E E
+		2026/08/30 13:39:20 INFO . P P E E E .
+		2026/08/30 13:39:20 INFO P B P E E E P
+		2026/08/30 13:39:20 INFO . P . E E P .
+		2026/08/30 13:39:20 INFO E E E P E . .
+	*/
+	const (
+		N = engine.FloodFillCellStateNone
+		B = engine.FloodFillCellStateBlocked
+		E = engine.FloodFillCellStateEscaped
+		P = engine.FloodFillCellStatePotentialBlocked
+	)
+	floodFillGrid := [][]engine.FloodFillCellState{
+		{E, N, E, P, E, P, N},
+		{E, N, E, E, E, E, E},
+		{N, P, E, E, E, E, E},
+		{N, P, P, E, E, E, N},
+		{P, B, P, E, E, E, P},
+		{N, P, N, E, E, P, N},
+		{E, E, E, P, E, N, N},
 	}
 
 	pathFinder := engine.NewCordonPathFinder()
 	cordons := pathFinder.FindCordons(floodFillGrid)
 
 	require.Len(t, cordons, 1)
-
-	assert.Equal(t, []engine.Coord{
-		{Row: 0, Col: 0},
-		{Row: 0, Col: 1},
-		{Row: 1, Col: 2},
-		{Row: 2, Col: 3},
-		{Row: 2, Col: 4},
-		{Row: 3, Col: 4},
-		{Row: 4, Col: 4},
-		{Row: 4, Col: 3},
-		{Row: 4, Col: 2},
-		{Row: 3, Col: 2},
-		{Row: 2, Col: 1},
-		{Row: 2, Col: 0},
-		{Row: 1, Col: 0},
-		{Row: 0, Col: 0},
-	}, cordons[0])
 }
 
 func TestFindCordons_TwoDiamondsSharingCorner(t *testing.T) {

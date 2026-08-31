@@ -21,15 +21,6 @@ func allDotsHaveFloodFillState(
 	return true
 }
 
-func newFloodFillGrid(width uint8, height uint8) [][]engine.FloodFillCellState {
-	floodFillGrid := make([][]engine.FloodFillCellState, int(height))
-	for rowIdx := range floodFillGrid {
-		floodFillGrid[rowIdx] = make([]engine.FloodFillCellState, int(width))
-	}
-
-	return floodFillGrid
-}
-
 func TestRunFloodFill_SupportsRectangularGrid(t *testing.T) {
 	field := engine.NewGameField(10, 20)
 	field.Dots[2][7] = field.Dots[2][7].WithOwner(engine.PlayerIndex(0))
@@ -455,7 +446,7 @@ func TestRunFloodFill_DoesNotCloseDiamondThroughKilledDot(t *testing.T) {
 		P = engine.FloodFillCellStatePotentialBlocked
 	)
 	assert.Equal(t, [][]engine.FloodFillCellState{
-		{N, E, E, E, N},
+		{N, E, N, E, N},
 		{N, E, E, E, N},
 		{N, E, E, E, N},
 		{N, P, E, P, N},
@@ -665,4 +656,71 @@ func TestRunFloodFill_ClassifiesSwappedRandomSevenBySevenGrid(t *testing.T) {
 		allDotsHaveFloodFillState(escapedRedDots, floodFillGrid, engine.FloodFillCellStateEscaped),
 		"expected every other red dot to be escaped",
 	)
+}
+
+func TestRunFloodFill_EscapesThroughKilledPlayerZeroDots(t *testing.T) {
+	// Grid after player 0 moves at (3,4):
+	//
+	//       c0 c1 c2 c3 c4 c5 c6
+	// r0    .  1  0  .  .  1  .
+	// r1    1  K  1  .  0  .  .
+	// r2    0  1  0  0  1  0  .
+	// r3    1  K  1  0  0  1  .
+	// r4    0  1  1  .  .  .  .
+	// r5    0  0  .  .  .  .  .
+	// r6    .  1  .  .  .  .  .
+	//
+	// Both killed dots belong to player 0. They do not close a cordon around
+	// the player 1 dot at (2,1), which must be marked escaped.
+	const (
+		playerZeroIdx engine.PlayerIndex = iota
+		playerOneIdx
+	)
+	allocation := []string{
+		".10..1.",
+		"1K1.0..",
+		"010010.",
+		"1K1001.",
+		"011....",
+		"00.....",
+		".1.....",
+	}
+
+	field := engine.NewGameField(7, 7)
+	for rowIdx, row := range allocation {
+		for colIdx := range row {
+			dot := field.Dots[rowIdx][colIdx]
+			switch row[colIdx] {
+			case '0':
+				field.Dots[rowIdx][colIdx] = dot.WithOwner(playerZeroIdx)
+			case '1':
+				field.Dots[rowIdx][colIdx] = dot.WithOwner(playerOneIdx)
+			case 'K':
+				field.Dots[rowIdx][colIdx] = dot.WithOwner(playerZeroIdx).WithKilled()
+			}
+		}
+	}
+	playerOneDots := field.Find(func(dot engine.Dot) bool {
+		return !dot.Killed && dot.IsOwnedBy(playerOneIdx)
+	})
+
+	floodFillGrid := engine.RunFloodFill(field, playerOneDots, playerOneIdx)
+
+	engine.PrintFloodFillGrid(floodFillGrid)
+
+	const (
+		N = engine.FloodFillCellStateNone
+		B = engine.FloodFillCellStateBlocked
+		E = engine.FloodFillCellStateEscaped
+		P = engine.FloodFillCellStatePotentialBlocked
+	)
+	assert.Equal(t, [][]engine.FloodFillCellState{
+		{N, E, P, E, N, E, N},
+		{E, N, E, E, P, N, N},
+		{N, E, P, P, B, P, N},
+		{E, E, E, N, P, E, N},
+		{N, E, E, N, N, E, N},
+		{N, P, E, N, N, E, N},
+		{N, E, E, N, N, E, N},
+	}, floodFillGrid)
 }
