@@ -71,11 +71,12 @@ func ToFloodFillGrid(gf *GameField) [][]FloodFillCellState {
 	return floodFillGrid
 }
 
-func PrintFloodFillGrid(floodFillGrid [][]FloodFillCellState) {
-	slog.Info("Floodfill Grid: ")
+func FloodFillGridToString(floodFillGrid [][]FloodFillCellState) string {
+	var builder strings.Builder
+	builder.WriteString("Floodfill Grid:")
 
 	for _, row := range floodFillGrid {
-		var builder strings.Builder
+		builder.WriteByte('\n')
 		for _, s := range row {
 			rune := '.'
 			switch s {
@@ -93,8 +94,9 @@ func PrintFloodFillGrid(floodFillGrid [][]FloodFillCellState) {
 			builder.WriteRune(rune)
 			builder.WriteByte(' ')
 		}
-		slog.Info(builder.String())
 	}
+
+	return builder.String()
 }
 
 func RunFloodFill(gameField *GameField, defenderDots []Dot, defenderIdx PlayerIndex) [][]FloodFillCellState {

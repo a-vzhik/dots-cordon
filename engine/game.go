@@ -3,6 +3,7 @@ package engine
 
 import (
 	"fmt"
+	"log/slog"
 )
 
 type Game struct {
@@ -58,7 +59,7 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		})
 
 	floodFillGrid := RunFloodFill(g.GameField, activeDefenderDots, defenderIdx)
-	PrintFloodFillGrid(floodFillGrid)
+	slog.Debug(FloodFillGridToString(floodFillGrid))
 
 	cordonPathFinder := NewCordonPathFinder()
 	cordons := cordonPathFinder.FindCordons(floodFillGrid)

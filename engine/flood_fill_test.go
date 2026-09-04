@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"log/slog"
 	"testing"
 
 	"github.com/a-vzhik/dots-cordon/engine"
@@ -104,7 +105,7 @@ func TestRunFloodFill_MarksEnclosedRegionBlocked(t *testing.T) {
 
 	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
-	engine.PrintFloodFillGrid(floodFillGrid)
+	slog.Info(engine.FloodFillGridToString(floodFillGrid))
 
 	assert.True(
 		t,
@@ -312,7 +313,7 @@ func TestRunFloodFill_HandlesTwoRectanglesSharingCorner(t *testing.T) {
 
 	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
-	engine.PrintFloodFillGrid(floodFillGrid)
+	slog.Info(engine.FloodFillGridToString(floodFillGrid))
 	assert.True(
 		t,
 		allDotsHaveFloodFillState(enclosedRedDots, floodFillGrid, engine.FloodFillCellStateBlocked),
@@ -436,7 +437,7 @@ func TestRunFloodFill_DoesNotCloseDiamondThroughKilledDot(t *testing.T) {
 	})
 	floodFillGrid := engine.RunFloodFill(field, redDots, redPlayerIdx)
 
-	engine.PrintFloodFillGrid(floodFillGrid)
+	slog.Info(engine.FloodFillGridToString(floodFillGrid))
 
 	const (
 		N = engine.FloodFillCellStateNone
@@ -706,7 +707,7 @@ func TestRunFloodFill_EscapesThroughKilledPlayerZeroDots(t *testing.T) {
 
 	floodFillGrid := engine.RunFloodFill(field, playerOneDots, playerOneIdx)
 
-	engine.PrintFloodFillGrid(floodFillGrid)
+	slog.Info(engine.FloodFillGridToString(floodFillGrid))
 
 	const (
 		N = engine.FloodFillCellStateNone
