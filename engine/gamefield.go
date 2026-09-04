@@ -45,6 +45,16 @@ func (gf *GameField) ToString() string {
 		fmt.Fprintf(&result, "%02d", colIdx)
 	}
 
+	toKilledRune := func(dot Dot) rune {
+		if dot.IsOwnedBy(PlayerIndex(0)) {
+			return 'x'
+		} else if dot.IsOwnedBy(PlayerIndex(1)) {
+			return 'X'
+		} else {
+			return '-'
+		}
+	}
+
 	for rowIdx, row := range gf.Dots {
 		fmt.Fprintf(&result, "\n%02d  ", rowIdx)
 		for colIdx, dot := range row {
@@ -54,7 +64,7 @@ func (gf *GameField) ToString() string {
 
 			switch {
 			case dot.Killed:
-				result.WriteByte('K')
+				result.WriteByte(byte(toKilledRune(dot)))
 			case dot.Owned:
 				fmt.Fprintf(&result, "%d", dot.Owner)
 			default:

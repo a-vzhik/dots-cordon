@@ -11,10 +11,12 @@ func TestGameFieldToString(t *testing.T) {
 	field.Dots[0][1] = field.Dots[0][1].WithOwner(PlayerIndex(0))
 	field.Dots[0][2] = field.Dots[0][2].WithOwner(PlayerIndex(1)).WithKilled()
 	field.Dots[1][0] = field.Dots[1][0].WithOwner(PlayerIndex(1))
+	field.Dots[1][1] = field.Dots[1][1].WithOwner(PlayerIndex(0)).WithKilled()
+	field.Dots[1][2] = field.Dots[1][2].WithKilled()
 
 	want := "    00 01 02\n" +
-		"00  .  0  K\n" +
-		"01  1  .  ."
+		"00  .  0  X\n" +
+		"01  1  x  -"
 	assert.Equal(t, want, field.ToString())
 }
 
