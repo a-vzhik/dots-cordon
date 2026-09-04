@@ -14,12 +14,12 @@ Run commands from the root of the dots-cordon repository that contains this skil
 Start a new two-player game with:
 
 ```bash
-go run . -opponent human
+go run . --board=7x11 --player0 agent --player1 human
 ```
 
 Run it in a persistent interactive terminal with a TTY and a short initial yield. Retain the returned session identifier across chat turns and send moves to that session's stdin as `row col\n`. If the local Go wrapper fails because `/bin/ps` is sandboxed, retry the same command with the platform's required escalation flow. Wait through a toolchain download or wrapper warning; the useful output begins with the score and board.
 
-Confirm that startup reaches a `Player 0 move` prompt and labels both players as Human. The default mode without `-opponent human` uses RandomAI and is not the chat match described here. Do not start a second process while a match is active.
+Confirm that startup reaches a `Player 0 move` prompt and labels Player 0 as Agent and Player 1 as Human. All three command-line options are required; omitting or mistyping one prints usage and stops the runner. Do not start a second process while a match is active.
 
 Player 0 moves first. Choose and submit the opening move, wait until `Player 1 move` appears, then show the resulting board and ask the user for `row col`.
 
