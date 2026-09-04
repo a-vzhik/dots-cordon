@@ -1,4 +1,4 @@
-package main
+package runners
 
 import (
 	"bytes"
@@ -11,13 +11,13 @@ import (
 
 func TestParseGameOptions(t *testing.T) {
 	t.Run("requires all options", func(t *testing.T) {
-		_, err := parseGameOptions(nil)
+		_, err := ParseGameOptions(nil)
 
 		assert.EqualError(t, err, "missing required options: --board, --player0, --player1")
 	})
 
 	t.Run("custom", func(t *testing.T) {
-		options, err := parseGameOptions([]string{
+		options, err := ParseGameOptions([]string{
 			"--board=15x25",
 			"--player0", "agent",
 			"--player1", "human",
@@ -32,7 +32,7 @@ func TestParseGameOptions(t *testing.T) {
 	})
 
 	t.Run("invalid value", func(t *testing.T) {
-		_, err := parseGameOptions([]string{
+		_, err := ParseGameOptions([]string{
 			"--board=15x25",
 			"--player0=agent",
 			"--player1=robot",
@@ -42,13 +42,13 @@ func TestParseGameOptions(t *testing.T) {
 	})
 
 	t.Run("unexpected argument", func(t *testing.T) {
-		_, err := parseGameOptions([]string{"extra"})
+		_, err := ParseGameOptions([]string{"extra"})
 
 		assert.EqualError(t, err, "unexpected arguments: extra")
 	})
 
 	t.Run("help", func(t *testing.T) {
-		_, err := parseGameOptions([]string{"--help"})
+		_, err := ParseGameOptions([]string{"--help"})
 
 		assert.ErrorIs(t, err, flag.ErrHelp)
 	})
@@ -57,7 +57,7 @@ func TestParseGameOptions(t *testing.T) {
 func TestPrintGameOptionsUsage(t *testing.T) {
 	var output bytes.Buffer
 
-	printGameOptionsUsage(&output)
+	PrintGameOptionsUsage(&output)
 
 	assert.Equal(t, "Usage:\n"+
 		"  dots-cordon --board=<rows>x<cols> --player0=<type> --player1=<type>\n"+

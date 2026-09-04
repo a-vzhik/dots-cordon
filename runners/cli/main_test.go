@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/a-vzhik/dots-cordon/engine"
+	"github.com/a-vzhik/dots-cordon/runners"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -80,7 +81,7 @@ func TestRunGameAcceptsAgentPlayer(t *testing.T) {
 	input := bufio.NewScanner(strings.NewReader("0 0\n"))
 	var output bytes.Buffer
 
-	err := runGame(game, [2]PlayerType{Agent, RandomAI}, input, &output)
+	err := runGame(game, [2]runners.PlayerType{runners.Agent, runners.RandomAI}, input, &output)
 
 	require.NoError(t, err)
 	assert.True(t, game.GameField.Dots[0][0].IsOwnedBy(0))

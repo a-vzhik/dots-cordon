@@ -1,4 +1,4 @@
-package main
+package runners
 
 import (
 	"errors"
@@ -44,12 +44,12 @@ func newGameOptionsFlagSet(output io.Writer, input *gameOptionsInput) *flag.Flag
 	return flags
 }
 
-func printGameOptionsUsage(output io.Writer) {
+func PrintGameOptionsUsage(output io.Writer) {
 	flags := newGameOptionsFlagSet(output, &gameOptionsInput{})
 	flags.Usage()
 }
 
-func parseGameOptions(args []string) (GameOptions, error) {
+func ParseGameOptions(args []string) (GameOptions, error) {
 	input := gameOptionsInput{}
 	flags := newGameOptionsFlagSet(io.Discard, &input)
 	if err := flags.Parse(args); err != nil {

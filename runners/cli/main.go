@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/a-vzhik/dots-cordon/engine"
+	"github.com/a-vzhik/dots-cordon/runners"
 )
 
 const (
@@ -27,15 +28,15 @@ func main() {
 }
 
 func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer) int {
-	options, err := parseGameOptions(args)
+	options, err := runners.ParseGameOptions(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printGameOptionsUsage(output)
+			runners.PrintGameOptionsUsage(output)
 			return 0
 		}
 
 		fmt.Fprintf(errorOutput, "Invalid game options: %v\n\n", err)
-		printGameOptionsUsage(errorOutput)
+		runners.PrintGameOptionsUsage(errorOutput)
 		return 2
 	}
 
@@ -63,7 +64,7 @@ func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer
 
 func runGame(
 	game *engine.Game,
-	playerTypes [2]PlayerType,
+	playerTypes [2]runners.PlayerType,
 	input *bufio.Scanner,
 	output io.Writer,
 ) error {
@@ -81,9 +82,9 @@ func runGame(
 
 		playerType := playerTypes[currentPlayer]
 		switch playerType {
-		case Human, Agent:
+		case runners.Human, runners.Agent:
 			result, currentMove, err = makeHumanMove(game, currentPlayer, input, output)
-		case RandomAI:
+		case runners.RandomAI:
 			result, currentMove, err = makeRandomMove(game, currentPlayer, lastMove, output)
 		default:
 			return fmt.Errorf("unsupported player type: %d", playerType)
@@ -108,7 +109,7 @@ func runGame(
 	}
 }
 
-func printGame(output io.Writer, game *engine.Game, playerTypes [2]PlayerType) {
+func printGame(output io.Writer, game *engine.Game, playerTypes [2]runners.PlayerType) {
 	fmt.Fprintf(
 		output,
 		"Score: Player 0 (%s) %d - Player 1 (%s) %d\n%s\n",
@@ -120,13 +121,13 @@ func printGame(output io.Writer, game *engine.Game, playerTypes [2]PlayerType) {
 	)
 }
 
-func playerTypeName(playerType PlayerType) string {
+func playerTypeName(playerType runners.PlayerType) string {
 	switch playerType {
-	case Human:
+	case runners.Human:
 		return "Human"
-	case Agent:
+	case runners.Agent:
 		return "Agent"
-	case RandomAI:
+	case runners.RandomAI:
 		return "RandomAI"
 	default:
 		return fmt.Sprintf("Unknown:%d", playerType)

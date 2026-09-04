@@ -9,17 +9,21 @@ Play as Player 0 while the user plays as Player 1. Operate the live CLI, relay t
 
 ## Start or resume a match
 
-Run commands from the root of the dots-cordon repository that contains this skill.
-
-Start a new two-player game with:
+Run the CLI from the root of the dots-cordon repository that contains this skill. All options are required:
 
 ```bash
-go run . --board=7x11 --player0 agent --player1 human
+go run ./runners/cli --board=<rows>x<cols> --player0=<type> --player1=<type>
+```
+
+Each player type must be `human`, `agent`, or `random`. The board value lists rows first and columns second. For a 7-row by 11-column match with Codex as Player 0 and the user as Player 1, run:
+
+```bash
+go run ./runners/cli --board=7x11 --player0=agent --player1=human
 ```
 
 Run it in a persistent interactive terminal with a TTY and a short initial yield. Retain the returned session identifier across chat turns and send moves to that session's stdin as `row col\n`. If the local Go wrapper fails because `/bin/ps` is sandboxed, retry the same command with the platform's required escalation flow. Wait through a toolchain download or wrapper warning; the useful output begins with the score and board.
 
-Confirm that startup reaches a `Player 0 move` prompt and labels Player 0 as Agent and Player 1 as Human. All three command-line options are required; omitting or mistyping one prints usage and stops the runner. Do not start a second process while a match is active.
+Confirm that startup reaches a `Player 0 move` prompt and labels Player 0 as Agent and Player 1 as Human. Omitting or mistyping an option prints usage and stops the runner. Do not start a second process while a match is active.
 
 Player 0 moves first. Choose and submit the opening move, wait until `Player 1 move` appears, then show the resulting board and ask the user for `row col`.
 
