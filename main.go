@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"math/rand"
@@ -15,9 +16,6 @@ import (
 )
 
 const (
-	gameFieldWidth  uint8 = 7
-	gameFieldHeight uint8 = 7
-
 	closeMoveRadius   = 2
 	closeMoveAttempts = 3
 	wideMoveRadius    = 4
@@ -25,31 +23,55 @@ const (
 )
 
 func main() {
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer) int {
+	options, err := parseGameOptions(args)
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printGameOptionsUsage(output)
+			return 0
+		}
+
+		fmt.Fprintf(errorOutput, "Invalid game options: %v\n\n", err)
+		printGameOptionsUsage(errorOutput)
+		return 2
+	}
+
 	recordFilePath := fmt.Sprintf(
 		"game-%s.json",
 		time.Now().Format("2006-01-02T15-04-05"),
 	)
 	game := engine.NewGame(
-		engine.NewGameField(gameFieldWidth, gameFieldHeight),
+		engine.NewGameField(options.BoardCols, options.BoardRows),
 		[]*engine.Player{
-			{Color: engine.BlueColor, PlayerType: engine.Human},
-			{Color: engine.RedColor, PlayerType: engine.RandomAI},
+			{Color: engine.BlueColor},
+			{Color: engine.RedColor},
 		},
 		engine.NewJsonGameRecorder(recordFilePath),
 	)
 
-	err := runGame(game, bufio.NewScanner(os.Stdin), os.Stdout)
+	err = runGame(game, options.PlayerTypes, bufio.NewScanner(input), output)
 	if err != nil && !errors.Is(err, io.EOF) {
-		fmt.Fprintf(os.Stderr, "Game stopped: %v\n", err)
+		fmt.Fprintf(errorOutput, "Game stopped: %v\n", err)
+		return 1
 	}
+
+	return 0
 }
 
-func runGame(game *engine.Game, input *bufio.Scanner, output io.Writer) error {
+func runGame(
+	game *engine.Game,
+	playerTypes [2]PlayerType,
+	input *bufio.Scanner,
+	output io.Writer,
+) error {
 	currentPlayer := engine.PlayerIndex(0)
 	var lastMove *engine.Coord
 
 	for {
-		printGame(output, game)
+		printGame(output, game, playerTypes)
 
 		var (
 			result      *engine.MoveResult
@@ -57,13 +79,14 @@ func runGame(game *engine.Game, input *bufio.Scanner, output io.Writer) error {
 			err         error
 		)
 
-		switch game.Players[currentPlayer].PlayerType {
-		case engine.Human:
+		playerType := playerTypes[currentPlayer]
+		switch playerType {
+		case Human, Agent:
 			result, currentMove, err = makeHumanMove(game, currentPlayer, input, output)
-		case engine.RandomAI:
+		case RandomAI:
 			result, currentMove, err = makeRandomMove(game, currentPlayer, lastMove, output)
 		default:
-			return fmt.Errorf("unsupported player type: %d", game.Players[currentPlayer].PlayerType)
+			return fmt.Errorf("unsupported player type: %d", playerType)
 		}
 		if err != nil {
 			return err
@@ -75,7 +98,7 @@ func runGame(game *engine.Game, input *bufio.Scanner, output io.Writer) error {
 		//}
 
 		if result.IsTerminal {
-			printGame(output, game)
+			printGame(output, game, playerTypes)
 			fmt.Fprintln(output, "Game over.")
 			return nil
 		}
@@ -85,14 +108,29 @@ func runGame(game *engine.Game, input *bufio.Scanner, output io.Writer) error {
 	}
 }
 
-func printGame(output io.Writer, game *engine.Game) {
+func printGame(output io.Writer, game *engine.Game, playerTypes [2]PlayerType) {
 	fmt.Fprintf(
 		output,
-		"Score: Human %d - RandomAI %d\n%s\n",
+		"Score: Player 0 (%s) %d - Player 1 (%s) %d\n%s\n",
+		playerTypeName(playerTypes[0]),
 		game.Players[0].Score,
+		playerTypeName(playerTypes[1]),
 		game.Players[1].Score,
 		game.GameField.ToString(),
 	)
+}
+
+func playerTypeName(playerType PlayerType) string {
+	switch playerType {
+	case Human:
+		return "Human"
+	case Agent:
+		return "Agent"
+	case RandomAI:
+		return "RandomAI"
+	default:
+		return fmt.Sprintf("Unknown:%d", playerType)
+	}
 }
 
 func makeHumanMove(
@@ -102,12 +140,21 @@ func makeHumanMove(
 	output io.Writer,
 ) (*engine.MoveResult, engine.Coord, error) {
 	for {
-		fmt.Fprint(output, "Your move (<row> <col>): ")
+		fmt.Fprintf(
+			output,
+			"Player %d move (<row> <col>) OR <Q> to finish the game: ",
+			playerIndex,
+		)
 		if !input.Scan() {
 			return nil, engine.Coord{}, scannerError(input)
 		}
 
-		row, col, err := parseCoordinates(input.Text())
+		text := input.Text()
+		if text == "Q" {
+			return nil, engine.Coord{}, errors.New("game stopped by user")
+		}
+
+		row, col, err := parseCoordinates(text)
 		if err != nil {
 			fmt.Fprintf(output, "Invalid input: %v\n", err)
 			continue

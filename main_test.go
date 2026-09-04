@@ -1,13 +1,91 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/a-vzhik/dots-cordon/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRunPrintsUsageForMissingOptions(t *testing.T) {
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+
+	exitCode := run(nil, strings.NewReader(""), &output, &errorOutput)
+
+	assert.Equal(t, 2, exitCode)
+	assert.Empty(t, output.String())
+	assert.Contains(t, errorOutput.String(), "missing required options: --board, --player0, --player1")
+	assert.Contains(t, errorOutput.String(), "Usage:")
+}
+
+func TestRunPrintsUsageForInvalidOptions(t *testing.T) {
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+
+	exitCode := run(
+		[]string{"--board=invalid", "--player0=agent", "--player1=human"},
+		strings.NewReader(""),
+		&output,
+		&errorOutput,
+	)
+
+	assert.Equal(t, 2, exitCode)
+	assert.Empty(t, output.String())
+	assert.Contains(t, errorOutput.String(), `invalid board "invalid"`)
+	assert.Contains(t, errorOutput.String(), "Usage:")
+}
+
+func TestRunPrintsUsageForHelp(t *testing.T) {
+	var output bytes.Buffer
+	var errorOutput bytes.Buffer
+
+	exitCode := run([]string{"--help"}, strings.NewReader(""), &output, &errorOutput)
+
+	assert.Equal(t, 0, exitCode)
+	assert.Contains(t, output.String(), "Usage:")
+	assert.Empty(t, errorOutput.String())
+}
+
+func TestMakeHumanMoveIdentifiesPlayer(t *testing.T) {
+	game := engine.NewGame(
+		engine.NewGameField(2, 2),
+		[]*engine.Player{{}, {}},
+		engine.NoopGameRecorder{},
+	)
+	input := bufio.NewScanner(strings.NewReader("0 1\n"))
+	var output bytes.Buffer
+
+	_, move, err := makeHumanMove(game, 1, input, &output)
+
+	require.NoError(t, err)
+	assert.Equal(t, engine.Coord{Row: 0, Col: 1}, move)
+	assert.Equal(
+		t,
+		"Player 1 move (<row> <col>) OR <Q> to finish the game: ",
+		output.String(),
+	)
+}
+
+func TestRunGameAcceptsAgentPlayer(t *testing.T) {
+	game := engine.NewGame(
+		engine.NewGameField(1, 1),
+		[]*engine.Player{{}, {}},
+		engine.NoopGameRecorder{},
+	)
+	input := bufio.NewScanner(strings.NewReader("0 0\n"))
+	var output bytes.Buffer
+
+	err := runGame(game, [2]PlayerType{Agent, RandomAI}, input, &output)
+
+	require.NoError(t, err)
+	assert.True(t, game.GameField.Dots[0][0].IsOwnedBy(0))
+	assert.Contains(t, output.String(), "Player 0 (Agent)")
+}
 
 func TestMakeRandomMoveExpandsSearchBeforeFallingBackToWholeField(t *testing.T) {
 	game := engine.NewGame(
