@@ -316,13 +316,6 @@
             "Killed": false
           },
           {
-            "Col": 2,
-            "Row": 3,
-            "Owned": true,
-            "Owner": 0,
-            "Killed": false
-          },
-          {
             "Col": 1,
             "Row": 3,
             "Owned": true,

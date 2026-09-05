@@ -134,6 +134,13 @@
       "Cordons": [
         [
           {
+            "Col": 3,
+            "Row": 2,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
             "Col": 4,
             "Row": 2,
             "Owned": true,
@@ -162,7 +169,7 @@
             "Killed": false
           },
           {
-            "Col": 4,
+            "Col": 3,
             "Row": 2,
             "Owned": true,
             "Owner": 0,

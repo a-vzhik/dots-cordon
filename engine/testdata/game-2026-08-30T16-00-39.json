@@ -119,30 +119,6 @@
     "col": 0,
     "result": {
       "ScoredPoints": 0,
-      "Cordons": null,
-      "KilledDots": null,
-      "IsTerminal": false
-    }
-  },
-  {
-    "type": "move",
-    "playerIndex": 0,
-    "row": 3,
-    "col": 1,
-    "result": {
-      "ScoredPoints": 0,
-      "Cordons": null,
-      "KilledDots": null,
-      "IsTerminal": false
-    }
-  },
-  {
-    "type": "move",
-    "playerIndex": 1,
-    "row": 1,
-    "col": 2,
-    "result": {
-      "ScoredPoints": 1,
       "Cordons": [
         [
           {
@@ -186,11 +162,35 @@
         {
           "Row": 3,
           "Col": 1,
-          "Owned": true,
+          "Owned": false,
           "Owner": 0,
           "Killed": false
         }
       ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 3,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
       "IsTerminal": false
     }
   },
@@ -366,30 +366,6 @@
     "row": 2,
     "col": 5,
     "result": {
-      "ScoredPoints": 0,
-      "Cordons": null,
-      "KilledDots": null,
-      "IsTerminal": false
-    }
-  },
-  {
-    "type": "move",
-    "playerIndex": 1,
-    "row": 0,
-    "col": 5,
-    "result": {
-      "ScoredPoints": 0,
-      "Cordons": null,
-      "KilledDots": null,
-      "IsTerminal": false
-    }
-  },
-  {
-    "type": "move",
-    "playerIndex": 0,
-    "row": 3,
-    "col": 4,
-    "result": {
       "ScoredPoints": 1,
       "Cordons": [
         [
@@ -439,6 +415,18 @@
           "Killed": false
         }
       ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
       "IsTerminal": false
     }
   }

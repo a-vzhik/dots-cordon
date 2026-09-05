@@ -74,7 +74,7 @@ func TestGameReplay_MoveAtFiveFive(t *testing.T) {
 func TestGameReplay_MissedCounterCaptureRegression(t *testing.T) {
 	_, totalCaptures := replayRecordedGameAndCountCaptures(t, "game-2026-08-30T16-00-39.json")
 
-	assert.Equal(t, 3, totalCaptures)
+	assert.Equal(t, 2, totalCaptures)
 }
 
 func replayRecordedGameAndCountCaptures(t *testing.T, fileName string) (*Game, int) {

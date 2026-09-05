@@ -53,12 +53,12 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 
 	// Find active denfender dots and find cordons.
 	defenderIdx := offenderIndex.EnemyIndex()
-	activeDefenderDots := g.GameField.Find(
+	activeNonOffenderDots := g.GameField.Find(
 		func(dot Dot) bool {
-			return !dot.Killed && dot.IsOwnedBy(defenderIdx)
+			return !dot.Killed && (dot.Owned == false || dot.IsOwnedBy(defenderIdx))
 		})
 
-	floodFillGrid := RunFloodFill(g.GameField, activeDefenderDots, defenderIdx)
+	floodFillGrid := RunFloodFill(g.GameField, activeNonOffenderDots, defenderIdx)
 	slog.Debug(FloodFillGridToString(floodFillGrid))
 
 	cordonPathFinder := NewCordonPathFinder()

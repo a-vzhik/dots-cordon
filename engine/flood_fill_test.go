@@ -183,6 +183,58 @@ func TestRunFloodFill_SeparatesEnclosedAndFreeRedDots(t *testing.T) {
 	)
 }
 
+func TestRunFloodFill_MarksEmptyDiamondCenterBlocked(t *testing.T) {
+	// Grid (zero-based row and column indices):
+	//
+	//       c0 c1 c2 c3 c4
+	// r0    R  .  .  .  R
+	// r1    .  .  B  .  .
+	// r2    .  B  .  B  .
+	// r3    .  .  B  .  .
+	// r4    R  .  .  .  .
+	//
+	// R = red dot, B = blue dot, . = unowned dot. The blue diamond encloses
+	// the empty center while every red dot remains outside the diamond.
+	const (
+		redPlayerIdx engine.PlayerIndex = iota
+		bluePlayerIdx
+	)
+
+	field := engine.NewGameField(5, 5)
+	center := engine.Coord{Row: 2, Col: 2}
+	for _, coord := range []engine.Coord{
+		{Row: 0, Col: 0},
+		{Row: 0, Col: 4},
+		{Row: 4, Col: 0},
+	} {
+		field.Dots[coord.Row][coord.Col] = field.Dots[coord.Row][coord.Col].WithOwner(redPlayerIdx)
+	}
+	for _, coord := range []engine.Coord{
+		{Row: 1, Col: 2},
+		{Row: 2, Col: 1},
+		{Row: 2, Col: 3},
+		{Row: 3, Col: 2},
+	} {
+		field.Dots[coord.Row][coord.Col] = field.Dots[coord.Row][coord.Col].WithOwner(bluePlayerIdx)
+	}
+	redDots := field.Find(func(dot engine.Dot) bool {
+		return dot.IsOwnedBy(redPlayerIdx)
+	})
+	activeNonBlueDots := field.Find(func(dot engine.Dot) bool {
+		return (!dot.Killed && !dot.Owned) || dot.IsOwnedBy(redPlayerIdx)
+	})
+
+	floodFillGrid := engine.RunFloodFill(field, activeNonBlueDots, redPlayerIdx)
+
+	slog.Info(engine.FloodFillGridToString(floodFillGrid))
+	assert.Equal(t, engine.FloodFillCellStateBlocked, floodFillGrid[center.Row][center.Col])
+	assert.True(
+		t,
+		allDotsHaveFloodFillState(redDots, floodFillGrid, engine.FloodFillCellStateEscaped),
+		"expected all red dots outside the diamond to be escaped",
+	)
+}
+
 func TestRunFloodFill_EscapesAllRedDotsThroughOpenRhombusHatch(t *testing.T) {
 	// Grid (zero-based row and column indices):
 	//
