@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package dotscordon.v1;
+
+option go_package = "github.com/a-vzhik/dots-cordon/api/dotscordon/v1;dotscordonv1";
+
+// GameService owns in-memory game sessions. A client creates a session, sends
+// moves in turn order, and deletes or resets the session when an episode ends.
+service GameService {
+  rpc CreateGame(CreateGameRequest) returns (CreateGameResponse);
+  rpc GetGame(GetGameRequest) returns (GetGameResponse);
+  rpc MakeMove(MakeMoveRequest) returns (MakeMoveResponse);
+  rpc ResetGame(ResetGameRequest) returns (ResetGameResponse);
+  rpc DeleteGame(DeleteGameRequest) returns (DeleteGameResponse);
+}
+
+message CreateGameRequest {
+  uint32 rows = 1;
+  uint32 columns = 2;
+
+  // Zero means that the game ends only when the board is full.
+  uint32 max_turns = 3;
+}
+
+message CreateGameResponse {
+  GameState game = 1;
+}
+
+message GetGameRequest {
+  string game_id = 1;
+}
+
+message GetGameResponse {
+  GameState game = 1;
+}
+
+message MakeMoveRequest {
+  string game_id = 1;
+
+  // Must equal GameState.turn. This prevents a retried or concurrent request
+  // from applying an action to a different observation.
+  uint32 expected_turn = 2;
+  Coordinate position = 3;
+}
+
+message MakeMoveResponse {
+  GameState game = 1;
+  MoveResult result = 2;
+}
+
+message ResetGameRequest {
+  string game_id = 1;
+}
+
+message ResetGameResponse {
+  GameState game = 1;
+}
+
+message DeleteGameRequest {
+  string game_id = 1;
+}
+
+message DeleteGameResponse {}
+
+message GameState {
+  string game_id = 1;
+  Board board = 2;
+
+  // Always contains [player_0_score, player_1_score].
+  repeated uint32 scores = 3;
+  uint32 current_player = 4;
+
+  // Number of successfully applied moves. Player 0 acts on turn zero.
+  uint32 turn = 5;
+  bool terminal = 6;
+  TerminationReason termination_reason = 7;
+}
+
+message Board {
+  uint32 rows = 1;
+  uint32 columns = 2;
+
+  // Row-major cell values. Every byte is one of the Cell enum values below.
+  // This compact representation can be read directly as a uint8 tensor.
+  bytes cells = 3;
+}
+
+enum Cell {
+  CELL_EMPTY = 0;
+  CELL_PLAYER_0 = 1;
+  CELL_PLAYER_1 = 2;
+  CELL_DEAD_EMPTY = 3;
+  CELL_DEAD_PLAYER_0 = 4;
+  CELL_DEAD_PLAYER_1 = 5;
+}
+
+enum TerminationReason {
+  TERMINATION_REASON_UNSPECIFIED = 0;
+  TERMINATION_REASON_BOARD_FULL = 1;
+  TERMINATION_REASON_TURN_LIMIT = 2;
+}
+
+message MoveResult {
+  uint32 player = 1;
+  uint32 scored_points = 2;
+  repeated Coordinate killed_cells = 3;
+  repeated Cordon cordons = 4;
+}
+
+message Cordon {
+  repeated Coordinate positions = 1;
+}
+
+message Coordinate {
+  uint32 row = 1;
+  uint32 column = 2;
+}
