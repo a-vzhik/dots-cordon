@@ -77,6 +77,12 @@ func TestGameReplay_MissedCounterCaptureRegression(t *testing.T) {
 	assert.Equal(t, 2, totalCaptures)
 }
 
+func TestGameReplay_MeVsCodex1(t *testing.T) {
+	_, totalCaptures := replayRecordedGameAndCountCaptures(t, "game-2026-09-04T00-06-28-codex-vs-me.json")
+
+	assert.Equal(t, 4, totalCaptures)
+}
+
 func replayRecordedGameAndCountCaptures(t *testing.T, fileName string) (*Game, int) {
 	t.Helper()
 	filePath := filepath.Join("testdata", fileName)
