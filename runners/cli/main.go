@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,22 +13,27 @@ import (
 	"strings"
 	"time"
 
+	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
 	"github.com/a-vzhik/dots-cordon/engine"
 	"github.com/a-vzhik/dots-cordon/runners"
+	grpcserver "github.com/a-vzhik/dots-cordon/runners/grpc/server"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
-	closeMoveRadius   = 2
-	closeMoveAttempts = 3
-	wideMoveRadius    = 4
-	wideMoveAttempts  = 2
+	closeMoveRadius    = 2
+	closeMoveAttempts  = 3
+	wideMoveRadius     = 4
+	wideMoveAttempts   = 2
+	serverStartTimeout = 5 * time.Second
 )
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer) int {
+func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer) (exitCode int) {
 	options, err := runners.ParseGameOptions(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -44,16 +50,45 @@ func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer
 		"game-%s.json",
 		time.Now().Format("2006-01-02T15-04-05"),
 	)
-	game := engine.NewGame(
-		engine.NewGameField(options.BoardCols, options.BoardRows),
-		[]*engine.Player{
-			{Color: engine.BlueColor},
-			{Color: engine.RedColor},
-		},
-		engine.NewJsonGameRecorder(recordFilePath),
+	gameServer, err := startEmbeddedGameServer(
+		grpcserver.NewService(
+			1,
+			grpcserver.WithRecorderFactory(func(string) engine.Recorder {
+				return engine.NewJsonGameRecorder(recordFilePath)
+			}),
+		),
 	)
+	if err != nil {
+		fmt.Fprintf(errorOutput, "Failed to start game server: %v\n", err)
+		return 1
+	}
+	defer func() {
+		if closeErr := gameServer.Close(); closeErr != nil {
+			fmt.Fprintf(errorOutput, "Failed to stop game server: %v\n", closeErr)
+			if exitCode == 0 {
+				exitCode = 1
+			}
+		}
+	}()
 
-	err = runGame(game, options.PlayerTypes, bufio.NewScanner(input), output)
+	startContext, cancelStart := context.WithTimeout(context.Background(), serverStartTimeout)
+	created, err := gameServer.client.CreateGame(startContext, &dotscordonv1.CreateGameRequest{
+		Rows:    uint32(options.BoardRows),
+		Columns: uint32(options.BoardCols),
+	})
+	cancelStart()
+	if err != nil {
+		fmt.Fprintf(errorOutput, "Failed to create game: %v\n", err)
+		return 1
+	}
+
+	err = runGame(
+		gameServer.client,
+		created.GetGame(),
+		options.PlayerTypes,
+		bufio.NewScanner(input),
+		output,
+	)
 	if err != nil && !errors.Is(err, io.EOF) {
 		fmt.Fprintf(errorOutput, "Game stopped: %v\n", err)
 		return 1
@@ -63,29 +98,34 @@ func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer
 }
 
 func runGame(
-	game *engine.Game,
+	client dotscordonv1.GameServiceClient,
+	game *dotscordonv1.GameState,
 	playerTypes [2]runners.PlayerType,
 	input *bufio.Scanner,
 	output io.Writer,
 ) error {
-	currentPlayer := engine.PlayerIndex(0)
-	var lastMove *engine.Coord
+	var lastMove *dotscordonv1.Coordinate
 
 	for {
 		printGame(output, game, playerTypes)
 
+		playerIndex := game.GetCurrentPlayer()
+		if playerIndex >= uint32(len(playerTypes)) {
+			return fmt.Errorf("unsupported player index: %d", playerIndex)
+		}
+
 		var (
-			result      *engine.MoveResult
-			currentMove engine.Coord
+			response    *dotscordonv1.MakeMoveResponse
+			currentMove *dotscordonv1.Coordinate
 			err         error
 		)
 
-		playerType := playerTypes[currentPlayer]
+		playerType := playerTypes[playerIndex]
 		switch playerType {
 		case runners.Human, runners.Agent:
-			result, currentMove, err = makeHumanMove(game, currentPlayer, input, output)
+			response, currentMove, err = makeHumanMove(client, game, input, output)
 		case runners.RandomAI:
-			result, currentMove, err = makeRandomMove(game, currentPlayer, lastMove, output)
+			response, currentMove, err = makeRandomMove(client, game, lastMove, output)
 		default:
 			return fmt.Errorf("unsupported player type: %d", playerType)
 		}
@@ -93,32 +133,98 @@ func runGame(
 			return err
 		}
 
-		fmt.Fprintf(output, "MoveResult: %+v\n", *result)
-		//if err := waitForEnter(input, output); err != nil {
-		//	return err
-		//}
-
-		if result.IsTerminal {
+		printMoveResult(output, response.GetResult())
+		game = response.GetGame()
+		if game.GetTerminal() {
 			printGame(output, game, playerTypes)
 			fmt.Fprintln(output, "Game over.")
 			return nil
 		}
 
-		lastMove = &currentMove
-		currentPlayer = currentPlayer.EnemyIndex()
+		lastMove = currentMove
 	}
 }
 
-func printGame(output io.Writer, game *engine.Game, playerTypes [2]runners.PlayerType) {
+func printGame(
+	output io.Writer,
+	game *dotscordonv1.GameState,
+	playerTypes [2]runners.PlayerType,
+) {
 	fmt.Fprintf(
 		output,
 		"Score: Player 0 (%s) %d - Player 1 (%s) %d\n%s\n",
 		playerTypeName(playerTypes[0]),
-		game.Players[0].Score,
+		scoreAt(game, 0),
 		playerTypeName(playerTypes[1]),
-		game.Players[1].Score,
-		game.GameField.ToString(),
+		scoreAt(game, 1),
+		boardToString(game.GetBoard()),
 	)
+}
+
+func printMoveResult(output io.Writer, result *dotscordonv1.MoveResult) {
+	fmt.Fprintf(
+		output,
+		"MoveResult: {Player:%d ScoredPoints:%d KilledCells:%v Cordons:%v}\n",
+		result.GetPlayer(),
+		result.GetScoredPoints(),
+		result.GetKilledCells(),
+		result.GetCordons(),
+	)
+}
+
+func scoreAt(game *dotscordonv1.GameState, player int) uint32 {
+	if player >= len(game.GetScores()) {
+		return 0
+	}
+	return game.GetScores()[player]
+}
+
+func boardToString(board *dotscordonv1.Board) string {
+	var result strings.Builder
+
+	result.WriteString("    ")
+	for column := uint32(0); column < board.GetColumns(); column++ {
+		if column > 0 {
+			result.WriteByte(' ')
+		}
+		fmt.Fprintf(&result, "%02d", column)
+	}
+
+	for row := uint32(0); row < board.GetRows(); row++ {
+		fmt.Fprintf(&result, "\n%02d  ", row)
+		for column := uint32(0); column < board.GetColumns(); column++ {
+			if column > 0 {
+				result.WriteString("  ")
+			}
+			result.WriteByte(boardCellSymbol(board, row, column))
+		}
+	}
+
+	return result.String()
+}
+
+func boardCellSymbol(board *dotscordonv1.Board, row, column uint32) byte {
+	index := int(row*board.GetColumns() + column)
+	if index >= len(board.GetCells()) {
+		return '?'
+	}
+
+	switch dotscordonv1.Cell(board.GetCells()[index]) {
+	case dotscordonv1.Cell_CELL_PLAYER_0:
+		return '0'
+	case dotscordonv1.Cell_CELL_PLAYER_1:
+		return '1'
+	case dotscordonv1.Cell_CELL_DEAD_EMPTY:
+		return '-'
+	case dotscordonv1.Cell_CELL_DEAD_PLAYER_0:
+		return 'x'
+	case dotscordonv1.Cell_CELL_DEAD_PLAYER_1:
+		return 'X'
+	case dotscordonv1.Cell_CELL_EMPTY:
+		return '.'
+	default:
+		return '?'
+	}
 }
 
 func playerTypeName(playerType runners.PlayerType) string {
@@ -135,39 +241,47 @@ func playerTypeName(playerType runners.PlayerType) string {
 }
 
 func makeHumanMove(
-	game *engine.Game,
-	playerIndex engine.PlayerIndex,
+	client dotscordonv1.GameServiceClient,
+	game *dotscordonv1.GameState,
 	input *bufio.Scanner,
 	output io.Writer,
-) (*engine.MoveResult, engine.Coord, error) {
+) (*dotscordonv1.MakeMoveResponse, *dotscordonv1.Coordinate, error) {
 	for {
 		fmt.Fprintf(
 			output,
 			"Player %d move (<row> <col>) OR <Q> to finish the game: ",
-			playerIndex,
+			game.GetCurrentPlayer(),
 		)
 		if !input.Scan() {
-			return nil, engine.Coord{}, scannerError(input)
+			return nil, nil, scannerError(input)
 		}
 
 		text := input.Text()
 		if text == "Q" {
-			return nil, engine.Coord{}, errors.New("game stopped by user")
+			return nil, nil, errors.New("game stopped by user")
 		}
 
-		row, col, err := parseCoordinates(text)
+		row, column, err := parseCoordinates(text)
 		if err != nil {
 			fmt.Fprintf(output, "Invalid input: %v\n", err)
 			continue
 		}
 
-		result, err := game.Move(playerIndex, row, col)
+		move := &dotscordonv1.Coordinate{Row: uint32(row), Column: uint32(column)}
+		response, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+			GameId:       game.GetGameId(),
+			ExpectedTurn: game.GetTurn(),
+			Position:     move,
+		})
 		if err != nil {
-			fmt.Fprintf(output, "Invalid move: %v\n", err)
+			if status.Code(err) != codes.InvalidArgument {
+				return nil, nil, err
+			}
+			fmt.Fprintf(output, "Invalid move: %v\n", status.Convert(err).Message())
 			continue
 		}
 
-		return result, engine.Coord{Row: row, Col: col}, nil
+		return response, move, nil
 	}
 }
 
@@ -182,33 +296,34 @@ func parseCoordinates(input string) (uint8, uint8, error) {
 		return 0, 0, fmt.Errorf("invalid row %q", coordinates[0])
 	}
 
-	col, err := strconv.ParseUint(coordinates[1], 10, 8)
+	column, err := strconv.ParseUint(coordinates[1], 10, 8)
 	if err != nil {
 		return 0, 0, fmt.Errorf("invalid column %q", coordinates[1])
 	}
 
-	return uint8(row), uint8(col), nil
+	return uint8(row), uint8(column), nil
 }
 
 func makeRandomMove(
-	game *engine.Game,
-	playerIndex engine.PlayerIndex,
-	lastOpponentMove *engine.Coord,
+	client dotscordonv1.GameServiceClient,
+	game *dotscordonv1.GameState,
+	lastOpponentMove *dotscordonv1.Coordinate,
 	output io.Writer,
-) (*engine.MoveResult, engine.Coord, error) {
-	return makeRandomMoveWithIntn(game, playerIndex, lastOpponentMove, output, rand.Intn)
+) (*dotscordonv1.MakeMoveResponse, *dotscordonv1.Coordinate, error) {
+	return makeRandomMoveWithIntn(client, game, lastOpponentMove, output, rand.Intn)
 }
 
 func makeRandomMoveWithIntn(
-	game *engine.Game,
-	playerIndex engine.PlayerIndex,
-	lastOpponentMove *engine.Coord,
+	client dotscordonv1.GameServiceClient,
+	game *dotscordonv1.GameState,
+	lastOpponentMove *dotscordonv1.Coordinate,
 	output io.Writer,
 	intn func(int) int,
-) (*engine.MoveResult, engine.Coord, error) {
+) (*dotscordonv1.MakeMoveResponse, *dotscordonv1.Coordinate, error) {
+	board := game.GetBoard()
 	if lastOpponentMove != nil {
 		attempts := []struct {
-			radius uint8
+			radius uint32
 			count  int
 		}{
 			{radius: closeMoveRadius, count: closeMoveAttempts},
@@ -217,68 +332,71 @@ func makeRandomMoveWithIntn(
 
 		for _, attempt := range attempts {
 			for range attempt.count {
-				row, col := randomCoordinatesNear(
-					*lastOpponentMove,
+				row, column := randomCoordinatesNear(
+					lastOpponentMove,
 					attempt.radius,
-					game.GameField.Height,
-					game.GameField.Width,
+					board.GetRows(),
+					board.GetColumns(),
 					intn,
 				)
 
-				result, err := tryRandomMove(game, playerIndex, row, col, output)
+				response, move, err := tryRandomMove(client, game, row, column, output)
 				if err == nil {
-					return result, engine.Coord{Row: row, Col: col}, nil
+					return response, move, nil
+				}
+				if status.Code(err) != codes.InvalidArgument {
+					return nil, nil, err
 				}
 			}
 		}
 	}
 
 	for {
-		row := uint8(intn(int(game.GameField.Height)))
-		col := uint8(intn(int(game.GameField.Width)))
+		row := uint32(intn(int(board.GetRows())))
+		column := uint32(intn(int(board.GetColumns())))
 
-		result, err := tryRandomMove(game, playerIndex, row, col, output)
+		response, move, err := tryRandomMove(client, game, row, column, output)
 		if err == nil {
-			return result, engine.Coord{Row: row, Col: col}, nil
+			return response, move, nil
+		}
+		if status.Code(err) != codes.InvalidArgument {
+			return nil, nil, err
 		}
 	}
 }
 
 func randomCoordinatesNear(
-	center engine.Coord,
-	radius uint8,
-	height uint8,
-	width uint8,
+	center *dotscordonv1.Coordinate,
+	radius uint32,
+	height uint32,
+	width uint32,
 	intn func(int) int,
-) (uint8, uint8) {
-	minRow := max(0, int(center.Row)-int(radius))
-	maxRow := min(int(height)-1, int(center.Row)+int(radius))
-	minCol := max(0, int(center.Col)-int(radius))
-	maxCol := min(int(width)-1, int(center.Col)+int(radius))
+) (uint32, uint32) {
+	minRow := max(0, int(center.GetRow())-int(radius))
+	maxRow := min(int(height)-1, int(center.GetRow())+int(radius))
+	minColumn := max(0, int(center.GetColumn())-int(radius))
+	maxColumn := min(int(width)-1, int(center.GetColumn())+int(radius))
 
 	row := minRow + intn(maxRow-minRow+1)
-	col := minCol + intn(maxCol-minCol+1)
-	return uint8(row), uint8(col)
+	column := minColumn + intn(maxColumn-minColumn+1)
+	return uint32(row), uint32(column)
 }
 
 func tryRandomMove(
-	game *engine.Game,
-	playerIndex engine.PlayerIndex,
-	row uint8,
-	col uint8,
+	client dotscordonv1.GameServiceClient,
+	game *dotscordonv1.GameState,
+	row uint32,
+	column uint32,
 	output io.Writer,
-) (*engine.MoveResult, error) {
-	fmt.Fprintf(output, "RandomAI move: %d %d\n", row, col)
-	return game.Move(playerIndex, row, col)
-}
-
-func waitForEnter(input *bufio.Scanner, output io.Writer) error {
-	fmt.Fprint(output, "Press <Enter> to continue...")
-	if !input.Scan() {
-		return scannerError(input)
-	}
-	fmt.Fprintln(output)
-	return nil
+) (*dotscordonv1.MakeMoveResponse, *dotscordonv1.Coordinate, error) {
+	fmt.Fprintf(output, "RandomAI move: %d %d\n", row, column)
+	move := &dotscordonv1.Coordinate{Row: row, Column: column}
+	response, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+		GameId:       game.GetGameId(),
+		ExpectedTurn: game.GetTurn(),
+		Position:     move,
+	})
+	return response, move, err
 }
 
 func scannerError(input *bufio.Scanner) error {

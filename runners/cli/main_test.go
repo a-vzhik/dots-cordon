@@ -3,13 +3,21 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"net"
 	"strings"
 	"testing"
 
-	"github.com/a-vzhik/dots-cordon/engine"
+	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
 	"github.com/a-vzhik/dots-cordon/runners"
+	grpcserver "github.com/a-vzhik/dots-cordon/runners/grpc/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 func TestRunPrintsUsageForMissingOptions(t *testing.T) {
@@ -53,18 +61,21 @@ func TestRunPrintsUsageForHelp(t *testing.T) {
 }
 
 func TestMakeHumanMoveIdentifiesPlayer(t *testing.T) {
-	game := engine.NewGame(
-		engine.NewGameField(2, 2),
-		[]*engine.Player{{}, {}},
-		engine.NoopGameRecorder{},
-	)
+	client, game := newTestGame(t, 2, 2)
+	firstMove, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+		GameId:       game.GetGameId(),
+		ExpectedTurn: game.GetTurn(),
+		Position:     &dotscordonv1.Coordinate{},
+	})
+	require.NoError(t, err)
+
 	input := bufio.NewScanner(strings.NewReader("0 1\n"))
 	var output bytes.Buffer
-
-	_, move, err := makeHumanMove(game, 1, input, &output)
+	_, move, err := makeHumanMove(client, firstMove.GetGame(), input, &output)
 
 	require.NoError(t, err)
-	assert.Equal(t, engine.Coord{Row: 0, Col: 1}, move)
+	assert.Equal(t, uint32(0), move.GetRow())
+	assert.Equal(t, uint32(1), move.GetColumn())
 	assert.Equal(
 		t,
 		"Player 1 move (<row> <col>) OR <Q> to finish the game: ",
@@ -72,40 +83,47 @@ func TestMakeHumanMoveIdentifiesPlayer(t *testing.T) {
 	)
 }
 
-func TestRunGameAcceptsAgentPlayer(t *testing.T) {
-	game := engine.NewGame(
-		engine.NewGameField(1, 1),
-		[]*engine.Player{{}, {}},
-		engine.NoopGameRecorder{},
-	)
+func TestRunGameAcceptsAgentPlayerThroughGRPC(t *testing.T) {
+	client, game := newTestGame(t, 1, 1)
 	input := bufio.NewScanner(strings.NewReader("0 0\n"))
 	var output bytes.Buffer
 
-	err := runGame(game, [2]runners.PlayerType{runners.Agent, runners.RandomAI}, input, &output)
+	err := runGame(
+		client,
+		game,
+		[2]runners.PlayerType{runners.Agent, runners.RandomAI},
+		input,
+		&output,
+	)
 
 	require.NoError(t, err)
-	assert.True(t, game.GameField.Dots[0][0].IsOwnedBy(0))
+	got, err := client.GetGame(context.Background(), &dotscordonv1.GetGameRequest{
+		GameId: game.GetGameId(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []byte{byte(dotscordonv1.Cell_CELL_PLAYER_0)}, got.GetGame().GetBoard().GetCells())
+	assert.True(t, got.GetGame().GetTerminal())
 	assert.Contains(t, output.String(), "Player 0 (Agent)")
+	assert.Contains(t, output.String(), "Game over.")
 }
 
 func TestMakeRandomMoveExpandsSearchBeforeFallingBackToWholeField(t *testing.T) {
-	game := engine.NewGame(
-		engine.NewGameField(20, 20),
-		[]*engine.Player{{}, {}},
-		engine.NoopGameRecorder{},
-	)
-
-	occupiedCoordinates := []engine.Coord{
-		{Row: 8, Col: 8},
-		{Row: 9, Col: 9},
-		{Row: 10, Col: 10},
-		{Row: 6, Col: 6},
-		{Row: 7, Col: 7},
+	client, game := newTestGame(t, 20, 20)
+	occupiedCoordinates := []*dotscordonv1.Coordinate{
+		{Row: 8, Column: 8},
+		{Row: 9, Column: 9},
+		{Row: 10, Column: 10},
+		{Row: 6, Column: 6},
+		{Row: 7, Column: 7},
 	}
 	for _, occupied := range occupiedCoordinates {
-		game.GameField.Transform(occupied.Row, occupied.Col, func(dot engine.Dot) engine.Dot {
-			return dot.WithOwner(0)
+		response, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+			GameId:       game.GetGameId(),
+			ExpectedTurn: game.GetTurn(),
+			Position:     occupied,
 		})
+		require.NoError(t, err)
+		game = response.GetGame()
 	}
 
 	randomValues := []int{
@@ -125,12 +143,23 @@ func TestMakeRandomMoveExpandsSearchBeforeFallingBackToWholeField(t *testing.T) 
 	}
 
 	var output bytes.Buffer
-	lastOpponentMove := engine.Coord{Row: 10, Col: 10}
-	_, move, err := makeRandomMoveWithIntn(game, 1, &lastOpponentMove, &output, intn)
+	lastOpponentMove := &dotscordonv1.Coordinate{Row: 10, Column: 10}
+	response, move, err := makeRandomMoveWithIntn(
+		client,
+		game,
+		lastOpponentMove,
+		&output,
+		intn,
+	)
 
 	require.NoError(t, err)
-	assert.Equal(t, engine.Coord{Row: 19, Col: 19}, move)
-	assert.True(t, game.GameField.Dots[19][19].IsOwnedBy(1))
+	assert.Equal(t, uint32(19), move.GetRow())
+	assert.Equal(t, uint32(19), move.GetColumn())
+	assert.Equal(
+		t,
+		byte(dotscordonv1.Cell_CELL_PLAYER_1),
+		response.GetGame().GetBoard().GetCells()[19*20+19],
+	)
 	assert.Empty(t, randomValues)
 	assert.Equal(t, "RandomAI move: 8 8\n"+
 		"RandomAI move: 9 9\n"+
@@ -149,14 +178,89 @@ func TestRandomCoordinatesNearClipsSearchRadiusToField(t *testing.T) {
 		return value
 	}
 
-	row, col := randomCoordinatesNear(
-		engine.Coord{Row: 0, Col: 6},
+	row, column := randomCoordinatesNear(
+		&dotscordonv1.Coordinate{Row: 0, Column: 6},
 		2,
 		7,
 		7,
 		intn,
 	)
 
-	assert.Equal(t, uint8(0), row)
-	assert.Equal(t, uint8(6), col)
+	assert.Equal(t, uint32(0), row)
+	assert.Equal(t, uint32(6), column)
+}
+
+func TestBoardToStringRendersAllCellStates(t *testing.T) {
+	board := &dotscordonv1.Board{
+		Rows:    1,
+		Columns: 6,
+		Cells: []byte{
+			byte(dotscordonv1.Cell_CELL_EMPTY),
+			byte(dotscordonv1.Cell_CELL_PLAYER_0),
+			byte(dotscordonv1.Cell_CELL_PLAYER_1),
+			byte(dotscordonv1.Cell_CELL_DEAD_EMPTY),
+			byte(dotscordonv1.Cell_CELL_DEAD_PLAYER_0),
+			byte(dotscordonv1.Cell_CELL_DEAD_PLAYER_1),
+		},
+	}
+
+	assert.Equal(t, "    00 01 02 03 04 05\n00  .  0  1  -  x  X", boardToString(board))
+}
+
+func TestEmbeddedGameServerCloseStopsTheClientConnection(t *testing.T) {
+	listener := bufconn.Listen(1024 * 1024)
+	gameServer, err := startGameServerOnListener(
+		listener,
+		"passthrough:///bufnet",
+		grpcserver.NewService(1),
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+
+	_, err = gameServer.client.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{
+		Rows:    2,
+		Columns: 2,
+	})
+	require.NoError(t, err)
+	require.NoError(t, gameServer.Close())
+	require.NoError(t, gameServer.Close())
+
+	_, err = gameServer.client.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{
+		Rows:    2,
+		Columns: 2,
+	})
+	assert.Equal(t, codes.Canceled, status.Code(err))
+}
+
+func newTestGame(
+	t *testing.T,
+	rows uint32,
+	columns uint32,
+) (dotscordonv1.GameServiceClient, *dotscordonv1.GameState) {
+	t.Helper()
+
+	listener := bufconn.Listen(1024 * 1024)
+	gameServer, err := startGameServerOnListener(
+		listener,
+		"passthrough:///bufnet",
+		grpcserver.NewService(10),
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			return listener.Dial()
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, gameServer.Close())
+	})
+
+	created, err := gameServer.client.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{
+		Rows:    rows,
+		Columns: columns,
+	})
+	require.NoError(t, err)
+	return gameServer.client, created.GetGame()
 }

@@ -59,3 +59,8 @@ To play through the terminal:
 ```sh
 go run ./runners/cli --board=7x7 --player0=human --player1=random
 ```
+
+The CLI starts a private gRPC server on an ephemeral loopback port and plays
+through the same `GameService` API used by external agents. It shuts the server
+down when the game finishes, input ends, the user quits, or an error stops the
+game. CLI games continue to be written to timestamped `game-*.json` records.

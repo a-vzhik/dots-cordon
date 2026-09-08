@@ -19,33 +19,55 @@ import (
 type Service struct {
 	dotscordonv1.UnimplementedGameServiceServer
 
-	mu       sync.RWMutex
-	games    map[string]*gameSession
-	maxGames int
+	mu              sync.RWMutex
+	games           map[string]*gameSession
+	maxGames        int
+	recorderFactory RecorderFactory
+}
+
+// RecorderFactory creates an engine recorder for a game episode. The default
+// service uses NoopGameRecorder.
+type RecorderFactory func(gameID string) engine.Recorder
+
+// Option configures a Service.
+type Option func(*Service)
+
+// WithRecorderFactory records each newly created or reset game with the
+// recorder returned by factory. Returning nil disables recording for that
+// episode.
+func WithRecorderFactory(factory RecorderFactory) Option {
+	return func(service *Service) {
+		service.recorderFactory = factory
+	}
 }
 
 type gameSession struct {
 	mu sync.Mutex
 
-	id          string
-	rows        uint8
-	columns     uint8
-	maxTurns    uint32
-	game        *engine.Game
-	turn        uint32
-	current     engine.PlayerIndex
-	terminal    bool
-	termination dotscordonv1.TerminationReason
-	deleted     bool
+	id              string
+	rows            uint8
+	columns         uint8
+	maxTurns        uint32
+	game            *engine.Game
+	turn            uint32
+	current         engine.PlayerIndex
+	terminal        bool
+	termination     dotscordonv1.TerminationReason
+	deleted         bool
+	recorderFactory RecorderFactory
 }
 
 // NewService creates a stateful game service. maxGames <= 0 disables the
 // concurrent-session limit.
-func NewService(maxGames int) *Service {
-	return &Service{
+func NewService(maxGames int, options ...Option) *Service {
+	service := &Service{
 		games:    make(map[string]*gameSession),
 		maxGames: maxGames,
 	}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 func (s *Service) CreateGame(
@@ -87,6 +109,7 @@ func (s *Service) CreateGame(
 		uint8(request.GetRows()),
 		uint8(request.GetColumns()),
 		request.GetMaxTurns(),
+		s.recorderFactory,
 	)
 	s.games[gameID] = session
 
@@ -239,25 +262,39 @@ func (s *Service) DeleteGame(
 	return &dotscordonv1.DeleteGameResponse{}, nil
 }
 
-func newGameSession(id string, rows, columns uint8, maxTurns uint32) *gameSession {
+func newGameSession(
+	id string,
+	rows uint8,
+	columns uint8,
+	maxTurns uint32,
+	recorder RecorderFactory,
+) *gameSession {
 	session := &gameSession{
-		id:       id,
-		rows:     rows,
-		columns:  columns,
-		maxTurns: maxTurns,
+		id:              id,
+		rows:            rows,
+		columns:         columns,
+		maxTurns:        maxTurns,
+		recorderFactory: recorder,
 	}
 	session.resetLocked()
 	return session
 }
 
 func (session *gameSession) resetLocked() {
+	recorder := engine.Recorder(engine.NoopGameRecorder{})
+	if session.recorderFactory != nil {
+		if configured := session.recorderFactory(session.id); configured != nil {
+			recorder = configured
+		}
+	}
+
 	session.game = engine.NewGame(
 		engine.NewGameField(session.columns, session.rows),
 		[]*engine.Player{
 			{Color: engine.BlueColor},
 			{Color: engine.RedColor},
 		},
-		engine.NoopGameRecorder{},
+		recorder,
 	)
 	session.turn = 0
 	session.current = 0
