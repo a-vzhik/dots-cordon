@@ -83,6 +83,12 @@ func TestGameReplay_MeVsCodex1(t *testing.T) {
 	assert.Equal(t, 4, totalCaptures)
 }
 
+func TestGameReplay_MeVsCodex2(t *testing.T) {
+	_, totalCaptures := replayRecordedGameAndCountCaptures(t, "game-2026-09-10T00-29-30-codex-vs-me.json")
+
+	assert.Equal(t, 7, totalCaptures)
+}
+
 func replayRecordedGameAndCountCaptures(t *testing.T, fileName string) (*Game, int) {
 	t.Helper()
 	filePath := filepath.Join("testdata", fileName)

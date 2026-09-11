@@ -1,0 +1,2471 @@
+[
+  {
+    "type": "start",
+    "width": 15,
+    "height": 10
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 5,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 6,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 7,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 6,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 7,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 4,
+      "Cordons": [
+        [
+          {
+            "Row": 5,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 6,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 7,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 7,
+            "Col": 7,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 8,
+            "Col": 6,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 8,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 8,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 7,
+            "Col": 3,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 6,
+          "Col": 5,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 6,
+          "Col": 6,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 7,
+          "Col": 4,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 7,
+          "Col": 5,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 7,
+          "Col": 6,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 3,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 0,
+    "col": 6,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 0,
+    "col": 7,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 0,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 2,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 4,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 3,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 3,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 11,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 11,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 3,
+    "col": 11,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 2,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 1,
+      "Cordons": [
+        [
+          {
+            "Row": 2,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 11,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 3,
+          "Col": 10,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 11,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 2,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 3,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 3,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 4,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 7,
+      "Cordons": [
+        [
+          {
+            "Row": 1,
+            "Col": 6,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 7,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 8,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 8,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 7,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 6,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 6,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 2,
+          "Col": 6,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 2,
+          "Col": 7,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 2,
+          "Col": 8,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 3,
+          "Col": 5,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 3,
+          "Col": 6,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 3,
+          "Col": 7,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 3,
+          "Col": 8,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 4,
+          "Col": 6,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 4,
+          "Col": 7,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 4,
+          "Col": 8,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 4,
+          "Col": 9,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 5,
+          "Col": 7,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 5,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 3,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 5,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 3,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 3,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 4,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 1,
+      "Cordons": [
+        [
+          {
+            "Row": 3,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 3,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 4,
+          "Col": 4,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 8,
+    "col": 11,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": [
+        [
+          {
+            "Row": 6,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 11,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 7,
+            "Col": 12,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 8,
+            "Col": 11,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 7,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 7,
+          "Col": 11,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 7,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 8,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": [
+        [
+          {
+            "Row": 6,
+            "Col": 8,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 7,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 8,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 7,
+            "Col": 8,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 8,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 7,
+          "Col": 9,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 9,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": [
+        [
+          {
+            "Row": 7,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 8,
+            "Col": 11,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 9,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 8,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 7,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 8,
+          "Col": 10,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 9,
+    "col": 8,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 1,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 2,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 0,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 0,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 2,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 2,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 1,
+      "Cordons": [
+        [
+          {
+            "Row": 0,
+            "Col": 2,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 3,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 2,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 1,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 0,
+            "Col": 2,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 1,
+          "Col": 2,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 2,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 3,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 1,
+      "Cordons": [
+        [
+          {
+            "Row": 1,
+            "Col": 3,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 5,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 4,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 3,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 2,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 2,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 3,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 2,
+          "Col": 3,
+          "Owned": true,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 2,
+          "Col": 4,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 3,
+          "Col": 3,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 0,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 11,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 5,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 6,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 5,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 5,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 7,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 10,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 7,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 5,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 1,
+      "Cordons": [
+        [
+          {
+            "Row": 4,
+            "Col": 1,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 2,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 3,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 6,
+            "Col": 2,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 5,
+            "Col": 1,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          },
+          {
+            "Row": 4,
+            "Col": 1,
+            "Owned": true,
+            "Owner": 0,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 5,
+          "Col": 2,
+          "Owned": true,
+          "Owner": 1,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 4,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 1,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 4,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 3,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 2,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": [
+        [
+          {
+            "Row": 0,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 0,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 0,
+            "Col": 11,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 12,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 13,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 12,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 3,
+            "Col": 11,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 10,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 2,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 1,
+            "Col": 8,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          },
+          {
+            "Row": 0,
+            "Col": 9,
+            "Owned": true,
+            "Owner": 1,
+            "Killed": false
+          }
+        ]
+      ],
+      "KilledDots": [
+        {
+          "Row": 1,
+          "Col": 9,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 1,
+          "Col": 10,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 1,
+          "Col": 11,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 2,
+          "Col": 11,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        },
+        {
+          "Row": 2,
+          "Col": 12,
+          "Owned": false,
+          "Owner": 0,
+          "Killed": false
+        }
+      ],
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 9,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 3,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 1,
+    "col": 5,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 13,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 0,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 1,
+    "col": 0,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 2,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 6,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 3,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 8,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 8,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 1,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 9,
+    "col": 2,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 9,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 9,
+    "col": 11,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 0,
+    "row": 9,
+    "col": 12,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": false
+    }
+  },
+  {
+    "type": "move",
+    "playerIndex": 1,
+    "row": 9,
+    "col": 14,
+    "result": {
+      "ScoredPoints": 0,
+      "Cordons": null,
+      "KilledDots": null,
+      "IsTerminal": true
+    }
+  }
+]
