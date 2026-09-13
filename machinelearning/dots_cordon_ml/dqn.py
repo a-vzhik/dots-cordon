@@ -77,6 +77,13 @@ class ReplayBuffer:
             raise ValueError("sample count must be positive")
         return self._random.sample(self._items, count)
 
+    def random_state(self) -> tuple[object, ...]:
+        """Return the sampler state so checkpointed runs can resume reproducibly."""
+        return self._random.getstate()
+
+    def restore_random_state(self, state: tuple[object, ...]) -> None:
+        self._random.setstate(state)
+
     def __len__(self) -> int:
         return len(self._items)
 
@@ -112,7 +119,9 @@ class DQNAgent:
         legal_actions = np.flatnonzero(legal_mask)
         if legal_actions.size == 0:
             raise ValueError("cannot select an action without any legal moves")
-        if self.random.random() < epsilon:
+        # Greedy evaluation must not advance the exploration random stream. If it
+        # did, changing evaluation frequency would also change subsequent training.
+        if epsilon > 0.0 and self.random.random() < epsilon:
             return int(self.random.choice(legal_actions))
 
         self.online.eval()
@@ -162,4 +171,3 @@ class DQNAgent:
 
     def sync_target(self) -> None:
         self.target.load_state_dict(self.online.state_dict())
-

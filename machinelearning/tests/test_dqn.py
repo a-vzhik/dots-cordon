@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 import torch
 
@@ -25,6 +27,24 @@ def test_agent_never_selects_an_illegal_action() -> None:
     assert agent.select_action(state, mask, epsilon=1.0) == 2
 
 
+def test_greedy_action_does_not_advance_exploration_random_state() -> None:
+    agent = DQNAgent(
+        device=torch.device("cpu"),
+        learning_rate=1e-3,
+        gamma=0.99,
+        seed=3,
+        channels=8,
+        blocks=0,
+    )
+    state = np.zeros((5, 2, 3), dtype=np.float32)
+    mask = np.ones(6, dtype=bool)
+    before = deepcopy(agent.random.bit_generator.state)
+
+    agent.select_action(state, mask, epsilon=0.0)
+
+    assert agent.random.bit_generator.state == before
+
+
 def test_optimize_handles_terminal_state_without_legal_moves() -> None:
     agent = DQNAgent(
         device=torch.device("cpu"),
@@ -48,4 +68,3 @@ def test_optimize_handles_terminal_state_without_legal_moves() -> None:
     )
     loss = agent.optimize(replay, batch_size=1)
     assert np.isfinite(loss)
-

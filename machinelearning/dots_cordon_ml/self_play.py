@@ -298,6 +298,64 @@ def evaluate_against_random(
     )
 
 
+def evaluate_head_to_head(
+    environment: Environment,
+    candidate_a: ActionSelector,
+    candidate_b: ActionSelector,
+    game_seeds: Sequence[int],
+    opening_random_moves: int,
+) -> EvaluationResult:
+    """Evaluate candidate A against candidate B with paired swapped seats.
+
+    Each adjacent pair uses the same random opening. After the opening both
+    candidates act greedily, so the opponent is always the other DQN rather
+    than a random policy.
+    """
+    if not game_seeds:
+        raise ValueError("at least one game seed is required")
+    if opening_random_moves < 0:
+        raise ValueError("opening_random_moves must be non-negative")
+
+    overall = _MatchAccumulator()
+    by_player = (_MatchAccumulator(), _MatchAccumulator())
+
+    for game_index, game_seed in enumerate(game_seeds):
+        candidate_a_player = game_index % 2
+        opening_random = np.random.default_rng(game_seed)
+        game = environment.reset()
+        opening_move = 0
+
+        while not game.terminal:
+            mask = legal_action_mask(game)
+            if opening_move < opening_random_moves:
+                action = int(opening_random.choice(np.flatnonzero(mask)))
+                opening_move += 1
+            else:
+                agent = (
+                    candidate_a
+                    if game.current_player == candidate_a_player
+                    else candidate_b
+                )
+                action = agent.select_action(
+                    encode_state(game, game.current_player),
+                    mask,
+                    epsilon=0.0,
+                )
+            game = environment.step(action).game
+
+        difference = int(game.scores[candidate_a_player]) - int(
+            game.scores[1 - candidate_a_player]
+        )
+        overall.record(difference)
+        by_player[candidate_a_player].record(difference)
+
+    return EvaluationResult(
+        overall=overall.result(),
+        as_player_0=by_player[0].result(),
+        as_player_1=by_player[1].result(),
+    )
+
+
 def _continuing_transition(
     previous: _PendingTransition,
     next_state: np.ndarray,

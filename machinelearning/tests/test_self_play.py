@@ -9,6 +9,7 @@ from dots_cordon_ml.self_play import (
     collect_against_random_episode,
     collect_self_play_episode,
     evaluate_against_random,
+    evaluate_head_to_head,
     random_game_seeds,
 )
 
@@ -36,6 +37,20 @@ class FirstLegalAgent:
     ) -> int:
         del epsilon
         return int(np.flatnonzero(legal_mask)[0])
+
+
+class FixedActionAgent:
+    def __init__(self, action: int) -> None:
+        self.action = action
+        self.calls = 0
+
+    def select_action(
+        self, _state: np.ndarray, legal_mask: np.ndarray, epsilon: float
+    ) -> int:
+        assert epsilon == 0.0
+        assert legal_mask[self.action]
+        self.calls += 1
+        return self.action
 
 
 class ScriptedEnvironment:
@@ -158,3 +173,70 @@ def test_evaluation_reports_reproducible_overall_and_seat_results() -> None:
     assert result.as_player_0.mean_score_difference == 0.5
     assert (result.as_player_1.wins, result.as_player_1.draws) == (1, 1)
     assert result.as_player_1.mean_score_difference == 1.5
+
+
+class OneMoveHeadToHeadEnvironment:
+    def __init__(self) -> None:
+        self.actions: list[int] = []
+
+    def reset(self) -> game_pb2.GameState:
+        return game_pb2.GameState(
+            board=game_pb2.Board(rows=1, columns=2, cells=b"\x00\x00"),
+            scores=(0, 0),
+            current_player=0,
+        )
+
+    def step(self, action: int) -> StepResult:
+        self.actions.append(action)
+        scores = (2, 0) if action == 0 else (0, 2)
+        cells = b"\x01\x00" if action == 0 else b"\x00\x01"
+        return StepResult(
+            game=game_pb2.GameState(
+                board=game_pb2.Board(rows=1, columns=2, cells=cells),
+                scores=scores,
+                current_player=1,
+                turn=1,
+                terminal=True,
+            ),
+            player=0,
+            reward=0,
+        )
+
+
+def test_head_to_head_swaps_candidate_seats() -> None:
+    environment = OneMoveHeadToHeadEnvironment()
+    candidate_a = FixedActionAgent(0)
+    candidate_b = FixedActionAgent(1)
+
+    result = evaluate_head_to_head(
+        environment,
+        candidate_a,
+        candidate_b,
+        random_game_seeds(2, seed=20),
+        opening_random_moves=0,
+    )
+
+    assert (result.wins, result.draws, result.losses) == (2, 0, 0)
+    assert result.mean_score_difference == 2.0
+    assert result.as_player_0.wins == 1
+    assert result.as_player_1.wins == 1
+    assert candidate_a.calls == 1
+    assert candidate_b.calls == 1
+
+
+def test_head_to_head_reuses_opening_for_swapped_seat_pair() -> None:
+    environment = OneMoveHeadToHeadEnvironment()
+    candidate_a = FixedActionAgent(0)
+    candidate_b = FixedActionAgent(1)
+
+    evaluate_head_to_head(
+        environment,
+        candidate_a,
+        candidate_b,
+        random_game_seeds(2, seed=21),
+        opening_random_moves=1,
+    )
+
+    assert environment.actions[0] == environment.actions[1]
+    assert candidate_a.calls == 0
+    assert candidate_b.calls == 0

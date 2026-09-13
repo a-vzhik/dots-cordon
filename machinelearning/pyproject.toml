@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 dots-cordon-train = "dots_cordon_ml.train:main"
 dots-cordon-evaluate = "dots_cordon_ml.evaluate:main"
+dots-cordon-head-to-head = "dots_cordon_ml.head_to_head:main"
 
 [dependency-groups]
 dev = [

@@ -36,7 +36,9 @@ The default setup trains exclusively through self-play on a 7x7 board,
 evaluates both seats against a random opponent every 250 episodes, and writes
 atomic PyTorch checkpoints under `checkpoints/`. Every evaluation uses the
 same paired random seeds with swapped seats, making checkpoint results
-directly comparable.
+directly comparable. The starting policy is evaluated before training and the
+strongest observed policy is also saved as `dqn-best.pt`; match score is the
+primary ranking and mean score difference breaks ties.
 Stop with Ctrl-C; the current episode finishes and
 `checkpoints/dqn-latest.pt` is saved.
 
@@ -67,7 +69,31 @@ checkpoint. Run `uv run dots-cordon-train --help` for all hyperparameters.
 Checkpoints restore the network, target network, optimizer, and counters. The
 replay buffer is intentionally not stored because a full buffer is roughly
 hundreds of megabytes; a resumed run therefore refills a fresh replay buffer
-before optimization restarts.
+before optimization restarts. New checkpoints also restore the exploration,
+opponent, and replay-sampler random streams. Older checkpoints without random
+state remain compatible and start those streams from the command-line seed.
+
+For champion continuations, enable patience-based early stopping so training
+does not continue long after a policy peak:
+
+```sh
+uv run dots-cordon-train \
+  --episodes 20000 \
+  --resume checkpoints/dqn-champion.pt \
+  --random-opponent-probability 0.50 \
+  --eval-games 200 \
+  --early-stop-patience 6 \
+  --early-stop-min-delta 0.005 \
+  --checkpoint-dir checkpoints/next-candidate \
+  2>&1 | tee logs/train-next-candidate.log
+```
+
+Patience counts evaluations, not episodes. With the default evaluation
+interval, six evaluations allow 1,500 episodes without a match-score
+improvement of at least `0.005`. A smaller improvement can still replace
+`dqn-best.pt`, but does not reset patience. Early stopping is disabled when
+`--early-stop-patience` is zero. Promote a best checkpoint to the global
+champion only after a separate, larger evaluation suite.
 
 ## Mixed self-play and random-opponent training
 
@@ -111,6 +137,27 @@ Results include overall W/D/L, match score (`win=1`, `draw=0.5`), mean score
 difference, and separate statistics for playing as Player 0 and Player 1. Keep
 the game count and seed unchanged when adding later checkpoints to the
 comparison.
+
+## Compare two checkpoints head to head
+
+The head-to-head evaluator assigns one DQN to each player and swaps their
+seats over paired games:
+
+```sh
+uv run dots-cordon-head-to-head \
+  --games 1000 \
+  --seed 20260917 \
+  --opening-random-moves 4 \
+  checkpoints/dqn-champion.pt \
+  checkpoints/early-stop-from-11750-seed8/dqn-0012000.pt
+```
+
+Each pair starts with the same reproducible random opening, after which both
+DQNs select every remaining move greedily. Four opening moves provide varied
+games without introducing a random opponent. Use an even game count so every
+opening is tested with the checkpoint seats swapped. Setting
+`--opening-random-moves 0` plays pure greedy games, but then every game with
+the same seat assignment is identical.
 
 ## Tests
 

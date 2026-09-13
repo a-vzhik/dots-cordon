@@ -9,6 +9,7 @@ from pathlib import Path
 import signal
 import sys
 import time
+from typing import Any
 
 import grpc
 import numpy as np
@@ -19,6 +20,7 @@ from .dqn import DQNAgent, ReplayBuffer
 from .environment import GameEnvironment
 from .self_play import (
     EpisodeResult,
+    EvaluationResult,
     MatchStats,
     collect_against_random_episode,
     collect_self_play_episode,
@@ -32,6 +34,56 @@ class TrainingState:
     episode: int = 0
     environment_steps: int = 0
     optimization_steps: int = 0
+
+
+@dataclass(slots=True)
+class EvaluationMonitor:
+    """Track the strongest policy and lack of meaningful improvement."""
+
+    patience: int
+    min_delta: float
+    best_score: float | None = None
+    best_mean_score_difference: float | None = None
+    best_episode: int | None = None
+    reference_score: float | None = None
+    evaluations_without_improvement: int = 0
+
+    def observe(self, episode: int, evaluation: EvaluationResult) -> bool:
+        """Record an evaluation and return whether it is the new best."""
+        score = evaluation.overall.match_score
+        mean_difference = evaluation.overall.mean_score_difference
+        best_rank = (
+            float("-inf") if self.best_score is None else self.best_score,
+            float("-inf")
+            if self.best_mean_score_difference is None
+            else self.best_mean_score_difference,
+        )
+        is_best = (score, mean_difference) > best_rank
+        if is_best:
+            self.best_score = score
+            self.best_mean_score_difference = mean_difference
+            self.best_episode = episode
+
+        if self.reference_score is None:
+            meaningful_improvement = True
+        elif self.min_delta == 0:
+            meaningful_improvement = score > self.reference_score
+        else:
+            meaningful_improvement = score >= self.reference_score + self.min_delta
+
+        if meaningful_improvement:
+            self.reference_score = score
+            self.evaluations_without_improvement = 0
+        else:
+            self.evaluations_without_improvement += 1
+        return is_best
+
+    @property
+    def should_stop(self) -> bool:
+        return (
+            self.patience > 0
+            and self.evaluations_without_improvement >= self.patience
+        )
 
 
 def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
@@ -76,6 +128,21 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         default=10_007,
         help="seed for the fixed random-opponent evaluation suite",
     )
+    parser.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=0,
+        help=(
+            "stop after this many evaluations without a meaningful improvement; "
+            "zero disables early stopping"
+        ),
+    )
+    parser.add_argument(
+        "--early-stop-min-delta",
+        type=float,
+        default=0.005,
+        help="match-score increase required to reset early-stopping patience",
+    )
     parser.add_argument("--checkpoint-every", type=int, default=250)
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints"))
     parser.add_argument("--resume", type=Path)
@@ -107,8 +174,12 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("--blocks and --updates-per-transition must be non-negative")
     if args.eval_every < 0 or args.eval_games < 0 or args.checkpoint_every < 0:
         parser.error("evaluation and checkpoint intervals must be non-negative")
+    if args.early_stop_patience < 0 or args.early_stop_min_delta < 0:
+        parser.error("early-stopping patience and minimum delta must be non-negative")
     if args.eval_every and not args.eval_games:
         parser.error("--eval-games must be positive when evaluation is enabled")
+    if args.early_stop_patience and not args.eval_every:
+        parser.error("--early-stop-patience requires evaluation to be enabled")
     if not 0 <= args.epsilon_end <= args.epsilon_start <= 1:
         parser.error("epsilon values must satisfy 0 <= end <= start <= 1")
     if not 0 <= args.gamma <= 1:
@@ -137,6 +208,7 @@ def _save_checkpoint(
     agent: DQNAgent,
     state: TrainingState,
     args: argparse.Namespace,
+    rng_state: dict[str, Any],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -148,13 +220,18 @@ def _save_checkpoint(
             "training_state": asdict(state),
             "board": {"rows": args.rows, "columns": args.columns},
             "model": {"channels": args.channels, "blocks": args.blocks},
+            "rng_state": rng_state,
         },
         temporary,
     )
     temporary.replace(path)
 
 
-def _load_checkpoint(path: Path, agent: DQNAgent, args: argparse.Namespace) -> TrainingState:
+def _load_checkpoint(
+    path: Path,
+    agent: DQNAgent,
+    args: argparse.Namespace,
+) -> tuple[TrainingState, dict[str, Any] | None]:
     checkpoint, metadata = read_checkpoint(path, map_location=agent.device)
     expected_model = (args.channels, args.blocks)
     if metadata.model != expected_model:
@@ -167,11 +244,52 @@ def _load_checkpoint(path: Path, agent: DQNAgent, args: argparse.Namespace) -> T
             f"checkpoint board is {metadata.board}, expected {expected_board}"
         )
     restore_agent(agent, checkpoint, restore_optimizer=True)
-    return TrainingState(
-        episode=metadata.episode,
-        environment_steps=metadata.environment_steps,
-        optimization_steps=metadata.optimization_steps,
+    rng_state = checkpoint.get("rng_state")
+    if rng_state is not None and not isinstance(rng_state, dict):
+        raise ValueError("checkpoint contains invalid random state")
+    return (
+        TrainingState(
+            episode=metadata.episode,
+            environment_steps=metadata.environment_steps,
+            optimization_steps=metadata.optimization_steps,
+        ),
+        rng_state,
     )
+
+
+def _capture_rng_state(
+    agent: DQNAgent,
+    replay: ReplayBuffer,
+    opponent_selection_random: np.random.Generator,
+    training_opponent_random: np.random.Generator,
+    random_opponent_episodes: int,
+) -> dict[str, Any]:
+    return {
+        "agent": agent.random.bit_generator.state,
+        "replay": replay.random_state(),
+        "opponent_selection": opponent_selection_random.bit_generator.state,
+        "training_opponent": training_opponent_random.bit_generator.state,
+        "random_opponent_episodes": random_opponent_episodes,
+    }
+
+
+def _restore_rng_state(
+    rng_state: dict[str, Any],
+    agent: DQNAgent,
+    replay: ReplayBuffer,
+    opponent_selection_random: np.random.Generator,
+    training_opponent_random: np.random.Generator,
+) -> int:
+    try:
+        agent.random.bit_generator.state = rng_state["agent"]
+        replay.restore_random_state(rng_state["replay"])
+        opponent_selection_random.bit_generator.state = rng_state[
+            "opponent_selection"
+        ]
+        training_opponent_random.bit_generator.state = rng_state["training_opponent"]
+        return int(rng_state["random_opponent_episodes"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("checkpoint contains invalid random state") from exc
 
 
 def run(args: argparse.Namespace) -> int:
@@ -187,23 +305,35 @@ def run(args: argparse.Namespace) -> int:
         blocks=args.blocks,
     )
     replay = ReplayBuffer(args.replay_capacity, seed=args.seed)
+    opponent_selection_random = np.random.default_rng(args.seed + 1)
+    training_opponent_random = np.random.default_rng(args.seed + 2)
+    random_opponent_episodes = 0
     state = TrainingState()
     if args.resume is not None:
-        state = _load_checkpoint(args.resume, agent, args)
+        state, rng_state = _load_checkpoint(args.resume, agent, args)
+        if rng_state is not None:
+            random_opponent_episodes = _restore_rng_state(
+                rng_state,
+                agent,
+                replay,
+                opponent_selection_random,
+                training_opponent_random,
+            )
     starting_episode = state.episode
 
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     recent: deque[EpisodeResult] = deque(maxlen=args.log_every)
     recent_losses: deque[float] = deque(maxlen=max(args.log_every * 50, 1))
-    opponent_selection_random = np.random.default_rng(args.seed + 1)
-    training_opponent_random = np.random.default_rng(args.seed + 2)
     evaluation_seeds = (
         random_game_seeds(args.eval_games, args.evaluation_seed)
         if args.eval_every
         else ()
     )
-    random_opponent_episodes = 0
     stop_requested = False
+    monitor = EvaluationMonitor(
+        patience=args.early_stop_patience,
+        min_delta=args.early_stop_min_delta,
+    )
 
     def request_stop(_signal: int, _frame: object) -> None:
         nonlocal stop_requested
@@ -226,6 +356,48 @@ def run(args: argparse.Namespace) -> int:
             max_turns=args.max_turns,
             rpc_timeout=args.rpc_timeout,
         ) as environment:
+            def save_checkpoint(path: Path) -> None:
+                _save_checkpoint(
+                    path,
+                    agent,
+                    state,
+                    args,
+                    _capture_rng_state(
+                        agent,
+                        replay,
+                        opponent_selection_random,
+                        training_opponent_random,
+                        random_opponent_episodes,
+                    ),
+                )
+
+            def evaluate_and_track() -> bool:
+                evaluation = evaluate_against_random(
+                    environment, agent, evaluation_seeds
+                )
+                print(
+                    f"evaluation episode={state.episode} "
+                    f"W/D/L={evaluation.wins}/{evaluation.draws}/{evaluation.losses} "
+                    f"match_score={evaluation.overall.match_score:.4f} "
+                    f"mean_score_diff={evaluation.mean_score_difference:+.3f} "
+                    f"P0={_format_stats(evaluation.as_player_0)} "
+                    f"P1={_format_stats(evaluation.as_player_1)}",
+                    flush=True,
+                )
+                if monitor.observe(state.episode, evaluation):
+                    best_path = args.checkpoint_dir / "dqn-best.pt"
+                    save_checkpoint(best_path)
+                    print(
+                        f"new best episode={state.episode} "
+                        f"match_score={evaluation.overall.match_score:.4f} "
+                        f"saved {best_path}",
+                        flush=True,
+                    )
+                return monitor.should_stop
+
+            if args.eval_every:
+                evaluate_and_track()
+
             while state.episode < args.episodes and not stop_requested:
                 epsilon = _epsilon(args, state.environment_steps)
 
@@ -283,7 +455,11 @@ def run(args: argparse.Namespace) -> int:
                     random_results = [
                         item for item in recent if item.opponent == "random"
                     ]
-                    mean_loss = float(np.mean(recent_losses)) if recent_losses else float("nan")
+                    mean_loss = (
+                        float(np.mean(recent_losses))
+                        if recent_losses
+                        else float("nan")
+                    )
                     completed_this_run = state.episode - starting_episode
                     games_per_second = completed_this_run / max(
                         time.monotonic() - started_at, 1e-9
@@ -297,27 +473,28 @@ def run(args: argparse.Namespace) -> int:
                         flush=True,
                     )
 
+                early_stop = False
                 if args.eval_every and state.episode % args.eval_every == 0:
-                    evaluation = evaluate_against_random(environment, agent, evaluation_seeds)
-                    print(
-                        f"evaluation episode={state.episode} "
-                        f"W/D/L={evaluation.wins}/{evaluation.draws}/{evaluation.losses} "
-                        f"mean_score_diff={evaluation.mean_score_difference:+.3f} "
-                        f"P0={_format_stats(evaluation.as_player_0)} "
-                        f"P1={_format_stats(evaluation.as_player_1)}",
-                        flush=True,
-                    )
+                    early_stop = evaluate_and_track()
 
                 if args.checkpoint_every and state.episode % args.checkpoint_every == 0:
-                    _save_checkpoint(
-                        args.checkpoint_dir / f"dqn-{state.episode:07d}.pt",
-                        agent,
-                        state,
-                        args,
+                    save_checkpoint(
+                        args.checkpoint_dir / f"dqn-{state.episode:07d}.pt"
                     )
 
+                if early_stop:
+                    print(
+                        f"early stopping episode={state.episode}: no match-score "
+                        f"improvement of at least {monitor.min_delta:.4f} for "
+                        f"{monitor.evaluations_without_improvement} evaluations; "
+                        f"best episode={monitor.best_episode} "
+                        f"match_score={monitor.best_score:.4f}",
+                        flush=True,
+                    )
+                    break
+
             final_path = args.checkpoint_dir / "dqn-latest.pt"
-            _save_checkpoint(final_path, agent, state, args)
+            save_checkpoint(final_path)
             print(f"saved {final_path}", flush=True)
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
