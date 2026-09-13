@@ -14,9 +14,17 @@ import grpc
 import numpy as np
 import torch
 
+from .checkpoint import read_checkpoint, restore_agent
 from .dqn import DQNAgent, ReplayBuffer
 from .environment import GameEnvironment
-from .self_play import EpisodeResult, collect_self_play_episode, evaluate_against_random
+from .self_play import (
+    EpisodeResult,
+    MatchStats,
+    collect_against_random_episode,
+    collect_self_play_episode,
+    evaluate_against_random,
+    random_game_seeds,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,9 +61,21 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--epsilon-end", type=float, default=0.05)
     parser.add_argument("--epsilon-decay-steps", type=int, default=100_000)
     parser.add_argument("--terminal-win-bonus", type=float, default=1.0)
+    parser.add_argument(
+        "--random-opponent-probability",
+        type=float,
+        default=0.0,
+        help="fraction of training episodes played against a random opponent",
+    )
     parser.add_argument("--log-every", type=int, default=25)
     parser.add_argument("--eval-every", type=int, default=250)
     parser.add_argument("--eval-games", type=int, default=40)
+    parser.add_argument(
+        "--evaluation-seed",
+        type=int,
+        default=10_007,
+        help="seed for the fixed random-opponent evaluation suite",
+    )
     parser.add_argument("--checkpoint-every", type=int, default=250)
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints"))
     parser.add_argument("--resume", type=Path)
@@ -93,6 +113,8 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("epsilon values must satisfy 0 <= end <= start <= 1")
     if not 0 <= args.gamma <= 1:
         parser.error("--gamma must be between zero and one")
+    if not 0 <= args.random_opponent_probability <= 1:
+        parser.error("--random-opponent-probability must be between zero and one")
 
 
 def _device(name: str) -> torch.device:
@@ -133,21 +155,23 @@ def _save_checkpoint(
 
 
 def _load_checkpoint(path: Path, agent: DQNAgent, args: argparse.Namespace) -> TrainingState:
-    checkpoint = torch.load(path, map_location=agent.device, weights_only=False)
-    expected_model = {"channels": args.channels, "blocks": args.blocks}
-    if checkpoint.get("model") != expected_model:
+    checkpoint, metadata = read_checkpoint(path, map_location=agent.device)
+    expected_model = (args.channels, args.blocks)
+    if metadata.model != expected_model:
         raise ValueError(
-            f"checkpoint model is {checkpoint.get('model')}, expected {expected_model}"
+            f"checkpoint model is {metadata.model}, expected {expected_model}"
         )
-    expected_board = {"rows": args.rows, "columns": args.columns}
-    if checkpoint.get("board") != expected_board:
+    expected_board = (args.rows, args.columns)
+    if metadata.board != expected_board:
         raise ValueError(
-            f"checkpoint board is {checkpoint.get('board')}, expected {expected_board}"
+            f"checkpoint board is {metadata.board}, expected {expected_board}"
         )
-    agent.online.load_state_dict(checkpoint["online"])
-    agent.target.load_state_dict(checkpoint["target"])
-    agent.optimizer.load_state_dict(checkpoint["optimizer"])
-    return TrainingState(**checkpoint["training_state"])
+    restore_agent(agent, checkpoint, restore_optimizer=True)
+    return TrainingState(
+        episode=metadata.episode,
+        environment_steps=metadata.environment_steps,
+        optimization_steps=metadata.optimization_steps,
+    )
 
 
 def run(args: argparse.Namespace) -> int:
@@ -171,7 +195,14 @@ def run(args: argparse.Namespace) -> int:
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     recent: deque[EpisodeResult] = deque(maxlen=args.log_every)
     recent_losses: deque[float] = deque(maxlen=max(args.log_every * 50, 1))
-    evaluation_random = np.random.default_rng(args.seed + 1)
+    opponent_selection_random = np.random.default_rng(args.seed + 1)
+    training_opponent_random = np.random.default_rng(args.seed + 2)
+    evaluation_seeds = (
+        random_game_seeds(args.eval_games, args.evaluation_seed)
+        if args.eval_every
+        else ()
+    )
+    random_opponent_episodes = 0
     stop_requested = False
 
     def request_stop(_signal: int, _frame: object) -> None:
@@ -182,7 +213,8 @@ def run(args: argparse.Namespace) -> int:
     started_at = time.monotonic()
     print(
         f"training on {args.rows}x{args.columns} via {args.server} "
-        f"using {device} (starting episode {state.episode + 1})",
+        f"using {device} (starting episode {state.episode + 1}, "
+        f"random-opponent probability {args.random_opponent_probability:.2f})",
         flush=True,
     )
 
@@ -212,14 +244,31 @@ def run(args: argparse.Namespace) -> int:
                         if state.optimization_steps % args.target_update == 0:
                             agent.sync_target()
 
-                result = collect_self_play_episode(
-                    environment,
-                    agent,
-                    replay,
-                    epsilon=epsilon,
-                    terminal_win_bonus=args.terminal_win_bonus,
-                    on_transition=optimize,
-                )
+                if (
+                    opponent_selection_random.random()
+                    < args.random_opponent_probability
+                ):
+                    learner_player = random_opponent_episodes % 2
+                    result = collect_against_random_episode(
+                        environment,
+                        agent,
+                        replay,
+                        epsilon=epsilon,
+                        random=training_opponent_random,
+                        learner_player=learner_player,
+                        terminal_win_bonus=args.terminal_win_bonus,
+                        on_transition=optimize,
+                    )
+                    random_opponent_episodes += 1
+                else:
+                    result = collect_self_play_episode(
+                        environment,
+                        agent,
+                        replay,
+                        epsilon=epsilon,
+                        terminal_win_bonus=args.terminal_win_bonus,
+                        on_transition=optimize,
+                    )
                 state = TrainingState(
                     episode=state.episode + 1,
                     environment_steps=state.environment_steps + result.moves,
@@ -228,7 +277,12 @@ def run(args: argparse.Namespace) -> int:
                 recent.append(result)
 
                 if state.episode % args.log_every == 0:
-                    score_differences = [item.scores[0] - item.scores[1] for item in recent]
+                    self_play_results = [
+                        item for item in recent if item.opponent == "self-play"
+                    ]
+                    random_results = [
+                        item for item in recent if item.opponent == "random"
+                    ]
                     mean_loss = float(np.mean(recent_losses)) if recent_losses else float("nan")
                     completed_this_run = state.episode - starting_episode
                     games_per_second = completed_this_run / max(
@@ -237,19 +291,20 @@ def run(args: argparse.Namespace) -> int:
                     print(
                         f"episode={state.episode} steps={state.environment_steps} "
                         f"epsilon={epsilon:.3f} replay={len(replay)} "
-                        f"mean_score_diff={np.mean(score_differences):+.3f} "
+                        f"opponents=self:{len(self_play_results)}/random:{len(random_results)} "
+                        f"{_score_summary(self_play_results, random_results)} "
                         f"loss={mean_loss:.5f} games/s={games_per_second:.2f}",
                         flush=True,
                     )
 
                 if args.eval_every and state.episode % args.eval_every == 0:
-                    evaluation = evaluate_against_random(
-                        environment, agent, args.eval_games, evaluation_random
-                    )
+                    evaluation = evaluate_against_random(environment, agent, evaluation_seeds)
                     print(
                         f"evaluation episode={state.episode} "
                         f"W/D/L={evaluation.wins}/{evaluation.draws}/{evaluation.losses} "
-                        f"mean_score_diff={evaluation.mean_score_difference:+.3f}",
+                        f"mean_score_diff={evaluation.mean_score_difference:+.3f} "
+                        f"P0={_format_stats(evaluation.as_player_0)} "
+                        f"P1={_format_stats(evaluation.as_player_1)}",
                         flush=True,
                     )
 
@@ -270,10 +325,35 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _format_stats(stats: MatchStats) -> str:
+    return (
+        f"{stats.wins}/{stats.draws}/{stats.losses}"
+        f"({stats.mean_score_difference:+.3f})"
+    )
+
+
+def _score_summary(
+    self_play_results: list[EpisodeResult],
+    random_results: list[EpisodeResult],
+) -> str:
+    parts: list[str] = []
+    if self_play_results:
+        differences = [item.scores[0] - item.scores[1] for item in self_play_results]
+        parts.append(f"self_p0_diff={np.mean(differences):+.3f}")
+    if random_results:
+        differences = []
+        for item in random_results:
+            assert item.learner_player is not None
+            player = item.learner_player
+            differences.append(item.scores[player] - item.scores[1 - player])
+        parts.append(f"random_learner_diff={np.mean(differences):+.3f}")
+    return " ".join(parts)
+
+
 def main() -> None:
     try:
         raise SystemExit(run(parse_args()))
-    except (ConnectionError, grpc.RpcError) as exc:
+    except (ConnectionError, FileNotFoundError, ValueError, grpc.RpcError) as exc:
         print(f"training failed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 

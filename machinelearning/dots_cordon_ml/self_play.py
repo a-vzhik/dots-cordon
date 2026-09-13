@@ -1,15 +1,35 @@
-"""Self-play data collection and evaluation against a random policy."""
+"""Training episodes and reproducible evaluation against a random policy."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Literal, Protocol
 
 import numpy as np
 
-from .dqn import DQNAgent, ReplayBuffer, Transition
+from .dqn import ReplayBuffer, Transition
 from .encoding import encode_state, legal_action_mask
-from .environment import GameEnvironment
+from .environment import StepResult
+from .proto import game_pb2
+
+
+class ActionSelector(Protocol):
+    def select_action(
+        self,
+        state: np.ndarray,
+        legal_mask: np.ndarray,
+        epsilon: float,
+    ) -> int: ...
+
+
+class Environment(Protocol):
+    def reset(self) -> game_pb2.GameState: ...
+
+    def step(self, action: int) -> StepResult: ...
+
+
+Opponent = Literal["self-play", "random"]
 
 
 @dataclass(slots=True)
@@ -24,19 +44,82 @@ class EpisodeResult:
     moves: int
     scores: tuple[int, int]
     transitions: int
+    opponent: Opponent
+    learner_player: int | None
 
 
 @dataclass(frozen=True, slots=True)
-class EvaluationResult:
+class MatchStats:
+    games: int
     wins: int
     draws: int
     losses: int
     mean_score_difference: float
 
+    @property
+    def match_score(self) -> float:
+        """Return match points per game, where a draw is worth half a win."""
+        if not self.games:
+            return float("nan")
+        return (self.wins + 0.5 * self.draws) / self.games
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationResult:
+    overall: MatchStats
+    as_player_0: MatchStats
+    as_player_1: MatchStats
+
+    # Preserve the original convenient fields used by the training logger.
+    @property
+    def wins(self) -> int:
+        return self.overall.wins
+
+    @property
+    def draws(self) -> int:
+        return self.overall.draws
+
+    @property
+    def losses(self) -> int:
+        return self.overall.losses
+
+    @property
+    def mean_score_difference(self) -> float:
+        return self.overall.mean_score_difference
+
+
+@dataclass(slots=True)
+class _MatchAccumulator:
+    games: int = 0
+    wins: int = 0
+    draws: int = 0
+    losses: int = 0
+    score_difference_sum: int = 0
+
+    def record(self, difference: int) -> None:
+        self.games += 1
+        self.score_difference_sum += difference
+        if difference > 0:
+            self.wins += 1
+        elif difference < 0:
+            self.losses += 1
+        else:
+            self.draws += 1
+
+    def result(self) -> MatchStats:
+        mean = self.score_difference_sum / self.games if self.games else float("nan")
+        return MatchStats(
+            games=self.games,
+            wins=self.wins,
+            draws=self.draws,
+            losses=self.losses,
+            mean_score_difference=mean,
+        )
+
 
 def collect_self_play_episode(
-    environment: GameEnvironment,
-    agent: DQNAgent,
+    environment: Environment,
+    agent: ActionSelector,
     replay: ReplayBuffer,
     epsilon: float,
     terminal_win_bonus: float = 1.0,
@@ -67,16 +150,7 @@ def collect_self_play_episode(
 
         previous = pending[player]
         if previous is not None:
-            add(
-                Transition(
-                    state=previous.state,
-                    action=previous.action,
-                    reward=previous.reward,
-                    next_state=state,
-                    next_legal_mask=legal_mask,
-                    done=False,
-                )
-            )
+            add(_continuing_transition(previous, state, legal_mask))
             pending[player] = None
 
         action = agent.select_action(state, legal_mask, epsilon)
@@ -87,24 +161,78 @@ def collect_self_play_episode(
         pending[player] = _PendingTransition(state, action, step.reward)
         game = step.game
 
-    final_scores = (int(game.scores[0]), int(game.scores[1]))
-    final_masks = legal_action_mask(game)
+    final_scores = _scores(game)
+    final_mask = legal_action_mask(game)
     for player, previous in enumerate(pending):
         if previous is None:
             continue
-        score_difference = final_scores[player] - final_scores[1 - player]
-        if score_difference > 0:
-            previous.reward += terminal_win_bonus
-        elif score_difference < 0:
-            previous.reward -= terminal_win_bonus
+        previous.reward += _win_bonus(final_scores, player, terminal_win_bonus)
+        add(_terminal_transition(previous, game, player, final_mask))
+
+    return EpisodeResult(
+        moves=int(game.turn),
+        scores=final_scores,
+        transitions=transition_count,
+        opponent="self-play",
+        learner_player=None,
+    )
+
+
+def collect_against_random_episode(
+    environment: Environment,
+    agent: ActionSelector,
+    replay: ReplayBuffer,
+    epsilon: float,
+    random: np.random.Generator,
+    learner_player: int,
+    terminal_win_bonus: float = 1.0,
+    on_transition: Callable[[], None] | None = None,
+) -> EpisodeResult:
+    """Train one player against a uniform-random opponent.
+
+    Only the learner's decisions enter replay. Each transition still includes
+    the random opponent's reply, using learner captures minus reply captures as
+    its reward.
+    """
+    if learner_player not in (0, 1):
+        raise ValueError(f"learner_player must be 0 or 1, got {learner_player}")
+
+    game = environment.reset()
+    pending: _PendingTransition | None = None
+    transition_count = 0
+
+    def add(transition: Transition) -> None:
+        nonlocal transition_count
+        replay.add(transition)
+        transition_count += 1
+        if on_transition is not None:
+            on_transition()
+
+    while not game.terminal:
+        legal_mask = legal_action_mask(game)
+        if game.current_player == learner_player:
+            state = encode_state(game, learner_player)
+            if pending is not None:
+                add(_continuing_transition(pending, state, legal_mask))
+            action = agent.select_action(state, legal_mask, epsilon)
+            step = environment.step(action)
+            pending = _PendingTransition(state, action, step.reward)
+        else:
+            action = int(random.choice(np.flatnonzero(legal_mask)))
+            step = environment.step(action)
+            if pending is not None:
+                pending.reward -= step.reward
+        game = step.game
+
+    final_scores = _scores(game)
+    if pending is not None:
+        pending.reward += _win_bonus(final_scores, learner_player, terminal_win_bonus)
         add(
-            Transition(
-                state=previous.state,
-                action=previous.action,
-                reward=previous.reward,
-                next_state=encode_state(game, player),
-                next_legal_mask=final_masks,
-                done=True,
+            _terminal_transition(
+                pending,
+                game,
+                learner_player,
+                legal_action_mask(game),
             )
         )
 
@@ -112,20 +240,42 @@ def collect_self_play_episode(
         moves=int(game.turn),
         scores=final_scores,
         transitions=transition_count,
+        opponent="random",
+        learner_player=learner_player,
     )
 
 
-def evaluate_against_random(
-    environment: GameEnvironment,
-    agent: DQNAgent,
-    games: int,
-    random: np.random.Generator,
-) -> EvaluationResult:
-    wins = draws = losses = 0
-    score_differences: list[int] = []
+def random_game_seeds(games: int, seed: int) -> tuple[int, ...]:
+    """Create reproducible paired seeds for swapped-seat evaluations."""
+    if games <= 0:
+        raise ValueError("games must be positive")
+    random = np.random.default_rng(seed)
+    pair_count = (games + 1) // 2
+    values = random.integers(
+        0,
+        np.iinfo(np.int64).max,
+        size=pair_count,
+        dtype=np.int64,
+    )
+    paired = [int(value) for value in values for _ in range(2)]
+    return tuple(paired[:games])
 
-    for game_index in range(games):
+
+def evaluate_against_random(
+    environment: Environment,
+    agent: ActionSelector,
+    game_seeds: Sequence[int],
+) -> EvaluationResult:
+    """Evaluate greedily on a reproducible suite, alternating model seats."""
+    if not game_seeds:
+        raise ValueError("at least one game seed is required")
+
+    overall = _MatchAccumulator()
+    by_player = (_MatchAccumulator(), _MatchAccumulator())
+
+    for game_index, game_seed in enumerate(game_seeds):
         model_player = game_index % 2
+        opponent_random = np.random.default_rng(game_seed)
         game = environment.reset()
         while not game.terminal:
             mask = legal_action_mask(game)
@@ -134,22 +284,59 @@ def evaluate_against_random(
                     encode_state(game, model_player), mask, epsilon=0.0
                 )
             else:
-                action = int(random.choice(np.flatnonzero(mask)))
+                action = int(opponent_random.choice(np.flatnonzero(mask)))
             game = environment.step(action).game
 
         difference = int(game.scores[model_player]) - int(game.scores[1 - model_player])
-        score_differences.append(difference)
-        if difference > 0:
-            wins += 1
-        elif difference < 0:
-            losses += 1
-        else:
-            draws += 1
+        overall.record(difference)
+        by_player[model_player].record(difference)
 
     return EvaluationResult(
-        wins=wins,
-        draws=draws,
-        losses=losses,
-        mean_score_difference=float(np.mean(score_differences)),
+        overall=overall.result(),
+        as_player_0=by_player[0].result(),
+        as_player_1=by_player[1].result(),
     )
 
+
+def _continuing_transition(
+    previous: _PendingTransition,
+    next_state: np.ndarray,
+    next_legal_mask: np.ndarray,
+) -> Transition:
+    return Transition(
+        state=previous.state,
+        action=previous.action,
+        reward=previous.reward,
+        next_state=next_state,
+        next_legal_mask=next_legal_mask,
+        done=False,
+    )
+
+
+def _terminal_transition(
+    previous: _PendingTransition,
+    game: game_pb2.GameState,
+    player: int,
+    final_mask: np.ndarray,
+) -> Transition:
+    return Transition(
+        state=previous.state,
+        action=previous.action,
+        reward=previous.reward,
+        next_state=encode_state(game, player),
+        next_legal_mask=final_mask,
+        done=True,
+    )
+
+
+def _scores(game: game_pb2.GameState) -> tuple[int, int]:
+    return (int(game.scores[0]), int(game.scores[1]))
+
+
+def _win_bonus(scores: tuple[int, int], player: int, amount: float) -> float:
+    difference = scores[player] - scores[1 - player]
+    if difference > 0:
+        return amount
+    if difference < 0:
+        return -amount
+    return 0.0
