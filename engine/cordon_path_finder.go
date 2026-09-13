@@ -124,7 +124,7 @@ func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [
 			break
 		}
 
-		slog.Info(fmt.Sprintf("Index:  %+v", cpf.Index))
+		slog.Debug(fmt.Sprintf("Index:  %+v", cpf.Index))
 
 		cpf.Ordered = make([]Coord, 0, len(cpf.Index))
 		cordonFound, deadEnd := cpf.WalkCordonStep(startFromKey, startFromKey)
@@ -147,7 +147,7 @@ func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [
 
 		extractedCordon = trimToClosedCordon(extractedCordon)
 
-		slog.Info(fmt.Sprintf("Cordon: len=%d, %+v", len(extractedCordon), extractedCordon))
+		slog.Debug(fmt.Sprintf("Cordon: len=%d, %+v", len(extractedCordon), extractedCordon))
 
 		// Cordon of 4 has effectively 3 points and doesn't capture anything.
 		// We still need remove such cordon from the index, but we won't return it.
@@ -258,7 +258,7 @@ func (cpf *CordonPathFinder) WalkCordonStep(toKey Coord, fromKey Coord) (bool, b
 		return cmp.Compare(distance1, distance2)
 	})
 
-	slog.Info(fmt.Sprintf("Walk %+v", toKey))
+	slog.Debug(fmt.Sprintf("Walk %+v", toKey))
 
 	if len(existingNeighbours) == 1 {
 		slog.Info(fmt.Sprintf("%+v 1 neighbour left: %+v", toKey, existingNeighbours))

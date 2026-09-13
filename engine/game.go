@@ -137,6 +137,8 @@ func (g *Game) Move(offenderIndex PlayerIndex, row uint8, col uint8) (*MoveResul
 		dotCordons = append(dotCordons, dotCordon)
 	}
 
+	slog.Info(fmt.Sprintf("Player %d closed a cordon, captured %d dots, scored %d points", offenderIndex, len(killedDots), scoredPoints))
+
 	return g.recordMove(offenderIndex, row, col, &MoveResult{
 		ScoredPoints: scoredPoints,
 		KilledDots:   killedDots,
