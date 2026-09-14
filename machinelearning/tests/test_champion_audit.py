@@ -201,10 +201,18 @@ def test_intermediate_champion_retains_tail_and_starts_new_branches_across_comma
     assert by_episode[3]["is_final_in_attempt"]
     assert not by_episode[2]["is_final_in_attempt"]
     assert [item["candidate_index"] for item in first_checkpoints[1:]] == [1, 2, 3]
+    assert [
+        item["episode"] for item in first_checkpoints if item["is_best_in_attempt"]
+    ] == [2]
     second_checkpoints = service.list_checkpoints(second["id"])
     assert second_checkpoints[0]["parent_checkpoint_id"] == promoted_id
     assert [item["episode"] for item in second_checkpoints] == [2, 3, 4, 5]
     assert second_checkpoints[1]["id"] != by_episode[3]["id"]
+    # Every candidate lost its screen. The earliest of the tied candidates is
+    # still the best within this attempt; the incumbent is not a candidate.
+    assert [
+        item["episode"] for item in second_checkpoints if item["is_best_in_attempt"]
+    ] == [3]
     for chain in (first_checkpoints, second_checkpoints):
         for parent, child in zip(chain, chain[1:]):
             assert child["parent_checkpoint_id"] == parent["id"]
@@ -288,6 +296,11 @@ def test_qualified_candidate_losing_challenge_retains_rejection_evidence(
     (attempt,) = service.list_attempts(experiment["id"])
     assert attempt["outcome"] == "no_challenger_passed"
     assert attempt["status"] == "completed"
+    assert [
+        row["episode"]
+        for row in service.list_checkpoints(attempt["id"])
+        if row["is_best_in_attempt"]
+    ] == [1]
     assert {
         (item["stage"], item["result"])
         for item in service.list_decisions(attempt["id"])

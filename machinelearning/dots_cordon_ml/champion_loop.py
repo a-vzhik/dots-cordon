@@ -903,6 +903,10 @@ def _run_loop(args: argparse.Namespace, service) -> int:
             reverse=True,
         )
         if service is not None:
+            service.select_best_screened_checkpoint(
+                attempt["id"],
+                [screen_batches[path]["id"] for path in candidates],
+            )
             ranks = {item.path: index for index, item in enumerate(contenders, start=1)}
             for candidate in candidate_results:
                 qualified = candidate.path in ranks

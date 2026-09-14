@@ -43,6 +43,12 @@ def parser():
         "status", help="Show experiment champions and attempt counts"
     )
     status.add_argument("--experiment")
+    serve = commands.add_parser(
+        "serve", help="Serve the read-only training audit HTTP API"
+    )
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8080)
+    serve.add_argument("--download-workers", type=int, default=2)
     return root
 
 
@@ -50,6 +56,20 @@ def main(argv=None):
     argument_parser = parser()
     args = argument_parser.parse_args(argv)
     try:
+        if args.command == "serve":
+            if not 1 <= args.port <= 65535 or args.download_workers < 1:
+                argument_parser.error(
+                    "--port must be 1–65535 and --download-workers must be positive"
+                )
+            import uvicorn
+            from .web.app import create_app
+
+            uvicorn.run(
+                create_app(args.database_url, download_workers=args.download_workers),
+                host=args.host,
+                port=args.port,
+            )
+            return
         if args.command == "db":
             database = Database(args.database_url)
             try:

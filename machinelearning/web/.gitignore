@@ -1,0 +1,5 @@
+node_modules/
+openapi.json
+*.tsbuildinfo
+playwright-report/
+test-results/

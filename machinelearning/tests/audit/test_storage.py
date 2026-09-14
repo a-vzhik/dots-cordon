@@ -438,3 +438,107 @@ def test_corrupt_blob_cannot_be_exported(service, tmp_path):
     with pytest.raises(AuditError, match="checksum"):
         service.export_checkpoint(champion["id"], target)
     assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    "scores,expected",
+    [
+        ([(0, 100), (1, 1)], 1),  # Match score takes precedence over score difference.
+        ([(1, 2), (1, 3)], 1),  # Mean score difference breaks a match-score tie.
+        ([(1, 2), (1, 2)], 0),  # Exact ties retain the earlier candidate.
+        (
+            [(0, -3), (0, -2)],
+            1,
+        ),  # Even losing candidates have a best within the attempt.
+    ],
+)
+def test_best_screened_checkpoint_is_selected_atomically_and_exposed_by_reader(
+    service, tmp_path, scores, expected
+):
+    experiment, champion, assignment = root(service, tmp_path)
+    branch = attempt(service, experiment, champion, assignment)
+    candidates = [
+        service.import_checkpoint(
+            experiment["id"],
+            checkpoint_file(tmp_path, 12750 + index * 250, marker=index + 2),
+            attempt_id=branch["id"],
+            is_screening_candidate=True,
+            candidate_index=index + 1,
+            is_best_in_attempt=index == 0,
+            is_final_in_attempt=index == 1,
+        )
+        for index in range(2)
+    ]
+    batches = []
+    for candidate, (wins, difference) in zip(candidates, scores, strict=True):
+        batch = evaluated(service, experiment, candidate, branch, complete=False)
+        stats = result(wins)
+        for seat in (0, 1):
+            stats[f"as_player_{seat}"]["score_difference_sum"] = difference
+        service.complete_suite(batch["id"], 0, stats)
+        batches.append(batch["id"])
+    # Caller order must not change the candidate-order tie breaker.
+    best = service.select_best_screened_checkpoint(branch["id"], batches[::-1])
+    assert best["id"] == candidates[expected]["id"]
+    assert best["is_best_in_attempt"]
+    assert [
+        row["id"]
+        for row in service.list_checkpoints(branch["id"])
+        if row["is_best_in_attempt"]
+    ] == [best["id"]]
+    assert service.get_checkpoint(candidates[1]["id"])["is_final_in_attempt"]
+    assert service.current_champion(experiment["id"])["checkpoint_id"] == champion["id"]
+    updated_at = service.get_attempt(branch["id"])["updated_at"]
+    assert service.select_best_screened_checkpoint(branch["id"], batches) == best
+    assert service.get_attempt(branch["id"])["updated_at"] == updated_at
+    with service.reader() as reader:
+        assert reader.checkpoint(best["id"])["is_best_in_attempt"]
+        lineage = reader.lineage(experiment["id"])
+        assert [
+            row["id"]
+            for row in lineage["checkpoints"]["items"]
+            if row["is_best_in_attempt"]
+        ] == [best["id"]]
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    ["missing", "incomplete", "different_suites", "incumbent", "other_attempt"],
+)
+def test_invalid_screening_selection_keeps_existing_best(service, tmp_path, invalid):
+    experiment, champion, assignment = root(service, tmp_path)
+    branch = attempt(service, experiment, champion, assignment)
+    first = service.import_checkpoint(
+        experiment["id"],
+        checkpoint_file(tmp_path, 12750, 2),
+        attempt_id=branch["id"],
+        is_screening_candidate=True,
+        is_best_in_attempt=True,
+    )
+    second = service.import_checkpoint(
+        experiment["id"],
+        checkpoint_file(tmp_path, 13000, 3),
+        attempt_id=branch["id"],
+        is_screening_candidate=True,
+    )
+    first_batch = evaluated(service, experiment, first, branch)
+    batch_owner = (
+        attempt(service, experiment, champion, assignment)
+        if invalid == "other_attempt"
+        else branch
+    )
+    second_batch = evaluated(
+        service,
+        experiment,
+        champion if invalid == "incumbent" else second,
+        batch_owner,
+        seed=2 if invalid == "different_suites" else 1,
+        complete=invalid != "incomplete",
+    )
+    batches = [first_batch["id"]]
+    if invalid != "missing":
+        batches.append(second_batch["id"])
+    with pytest.raises(AuditError):
+        service.select_best_screened_checkpoint(branch["id"], batches)
+    assert service.get_checkpoint(first["id"])["is_best_in_attempt"]
+    assert not service.get_checkpoint(second["id"])["is_best_in_attempt"]

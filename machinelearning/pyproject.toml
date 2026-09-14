@@ -9,11 +9,14 @@ description = "Server-backed self-play training for Dots Cordon"
 requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.14,<2",
+    "fastapi>=0.115,<1",
     "grpcio>=1.70,<2",
     "numpy>=2,<3",
     "protobuf>=7.36,<8",
+    "pydantic>=2.10,<3",
     "sqlalchemy>=2.0,<3",
     "torch>=2.6,<3",
+    "uvicorn>=0.34,<1",
 ]
 
 [project.scripts]
@@ -28,6 +31,7 @@ postgres = ["psycopg[binary]>=3.2,<4"]
 
 [dependency-groups]
 dev = [
+    "httpx2>=2,<3",
     "pytest>=8,<10",
 ]
 
@@ -39,3 +43,4 @@ include = ["dots_cordon_ml*"]
 
 [tool.setuptools.package-data]
 "dots_cordon_ml.audit" = ["migrations/script.py.mako"]
+"dots_cordon_ml.audit.web" = ["static/index.html", "static/assets/*"]

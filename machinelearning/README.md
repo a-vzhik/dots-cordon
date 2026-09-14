@@ -158,8 +158,160 @@ while training is active; copying only the main file can omit WAL data.
 Pass `--no-audit` for the previous file-only behavior. This mode does not update
 the database champion or retain database evidence.
 
-The initial implementation includes database migrations, administration
-commands, and runner integration. The website and HTTP API are still planned.
+The implementation includes database migrations, administration commands,
+runner integration, a read-only HTTP API, and a single-page training dashboard.
+
+## Training dashboard
+
+Build the frontend once (Node.js 22.12+ and npm are required). From
+`machinelearning/`:
+
+```sh
+uv sync
+cd web
+npm ci
+npm run build
+cd ..
+uv run dots-cordon-audit serve --port 8081
+```
+
+Open **http://127.0.0.1:8081/**. The page uses the server's configured database
+and shows weight ancestry, champion history, attempts and training metrics,
+checkpoint downloads, and all evaluation batches/suites. Episodes run
+horizontally; attempts occupy separate rows. Click a checkpoint to inspect it.
+Scores always describe the evaluated checkpoint, and incomplete aggregates
+are labeled partial.
+
+For champion-loop attempts, **Best in attempt** marks the highest-ranked
+candidate after all screening evaluations finish: match score first, mean score
+difference next, then the earlier candidate on an exact tie. It is selected even
+when every candidate fails qualification or loses to the champion. Champion
+status is separate. Standalone training selects its best checkpoint using its
+periodic training evaluations.
+
+The page refreshes after each completed read with a three-second interval,
+pauses when hidden, and keeps the last successful data on a connection error.
+You can pause updates or refresh manually. Experiment/checkpoint selection is
+stored in the URL. Full configuration, provenance, policies, and exact suite
+seeds are available in expandable details.
+
+This first version fetches all metadata pages and renders them together.
+Historical details are cached for up to 30 seconds; active attempts and
+evaluations are refreshed each cycle. Training charts show up to 120 uniformly
+sampled metric records per attempt. Large histories will need pagination or
+virtualization later. Checkpoint BLOBs are fetched only through explicit
+download links.
+
+For frontend development, leave the API running on port 8081 and run
+`npm run dev` in `machinelearning/web/`. Open http://127.0.0.1:5173/;
+Vite proxies API requests to that server. `npm run build` regenerates TypeScript
+types from the local FastAPI OpenAPI contract and writes the production bundle
+to `dots_cordon_ml/audit/web/static/`. Build before making a Python distribution
+to include these assets in the wheel. API-only use works without a frontend
+build; `/` then returns build instructions.
+
+Frontend checks, from `machinelearning/web/`:
+
+```sh
+npm test
+npm run build
+npx playwright install chromium
+npm run test:browser
+```
+
+Alternatively, use an installed Google Chrome with
+`PLAYWRIGHT_CHANNEL=chrome npm run test:browser`. Set
+`AUDIT_LIVE_URL=http://127.0.0.1:8081` to include a read-only smoke test against
+your running server. The other browser tests use synthetic API responses.
+
+## Read API
+
+Run this in a separate terminal from `machinelearning/`:
+
+```sh
+uv sync
+uv run dots-cordon-audit serve
+```
+
+The API listens on `http://127.0.0.1:8080`. Interactive API documentation is at
+`/docs`, and the typed OpenAPI contract is at `/openapi.json`. The server uses
+the same default database and `DOTS_CORDON_DATABASE_URL` as the training
+commands. An explicit URL goes before the subcommand:
+
+```sh
+uv run dots-cordon-audit --database-url sqlite:///audit/training.sqlite3 \
+  serve --host 127.0.0.1 --port 8080
+```
+
+The API opens SQLite in read-only mode. It can run alongside training, without
+connecting to the game server. `/health` returns HTTP 503 when the database is
+unavailable or its schema needs migration. Apply migrations separately with
+`dots-cordon-audit db upgrade`.
+
+| Route | Response |
+| --- | --- |
+| `GET /health` | Database connectivity and schema compatibility. |
+| `GET /api/v1/experiments` | Experiments, counts, and current champion metadata. |
+| `GET /api/v1/experiments/{id}/lineage` | Checkpoints, attempt lanes, ancestry edges, boundary nodes, champion history, and branch counts. The ID may also be an experiment name, such as `default`. |
+| `GET /api/v1/attempts` | Attempts filtered by `experiment_id`, `starting_checkpoint_id`, `status`, `phase`, `outcome`, `created_after`, and `created_before`. |
+| `GET /api/v1/attempts/{id}` | Configuration/provenance, diagnostics, counts, and a checkpoint page with recent scores and decisions. |
+| `GET /api/v1/attempts/{id}/metrics` | Bounded progress samples preserving their original training windows. |
+| `GET /api/v1/checkpoints/{id}` | Checkpoint metadata, BLOB availability/hash, and evaluation summaries. |
+| `GET /api/v1/checkpoints/{id}/download` | Verified checkpoint bytes, download filename, content length, SHA-256, and ETag. |
+| `GET /api/v1/evaluations/{id}` | Participants, paginated exact suite definitions/results and decisions, and aggregate evidence. |
+
+For the current training lineage:
+
+```sh
+curl http://127.0.0.1:8080/api/v1/experiments/default/lineage
+curl 'http://127.0.0.1:8080/api/v1/attempts?experiment_id=default&status=running'
+```
+
+List pages return `items`, `total`, `remaining`, `limit`, `next_cursor`, and
+`snapshot_at`. Pass the returned cursor unchanged with the same filters to get
+the next page; omit it to poll fresh data. Cursors bound append-only history by
+the initial page's timestamp and ordering key. Mutable status, flags, and
+evaluation completeness are read again on each request. Default list limits
+are 50, with a maximum of 200.
+
+Nested pages have their own parameters: attempt details use
+`checkpoint_limit`/`checkpoint_cursor`, checkpoint details use
+`evaluation_limit`/`evaluation_cursor`, and evaluation details use
+`suite_limit`/`suite_cursor` plus `decision_limit`/`decision_cursor`.
+Evaluation aggregates always cover **all completed suites in the batch**,
+independently of the suite page. Missing results are `null`; incomplete
+aggregates have `aggregate_is_partial: true`. Scores identify the subject
+checkpoint and include their numerator and denominator. Large random seeds
+are decimal strings so JavaScript can preserve them exactly.
+
+Lineage accepts `root_checkpoint_id`, `episode_min`, `episode_max`,
+`attempt_limit` (default 50, maximum 100), and `checkpoint_limit` (default 200,
+maximum 500). Its attempt and checkpoint pages have separate cursors. Preserve
+the attempt cursor while paging checkpoints within those lanes; advance the
+attempt cursor with no checkpoint cursor to load the next lanes. Checkpoint
+limits apply to full nodes; immediate boundary nodes are included separately
+so edges always have both endpoints. `truncated`, `remaining`, and each node's
+`children_outside_slice` identify omitted history. A root inside an older
+attempt can include that attempt's later checkpoints, while
+`current_champion.branches.attempts` counts only attempts whose starting
+checkpoint is that champion.
+
+Metrics accept an episode range and `max_points` (default 500, maximum 2000).
+They select evenly spaced stored samples, preserving the first and last
+samples. `stride`, `total_samples`, and `omitted_samples` explain sampling;
+the returned metrics are original values, not averages of omitted samples.
+
+Diagnostics mark a running record `unresponsive` after five minutes without
+a stored heartbeat. For attempts this also considers evaluation activity.
+This is a stale-heartbeat indication, not a change to the recorded status or
+proof that a long-running evaluation has stopped.
+
+Metadata requests do not load checkpoint payloads. Downloads verify the
+stored checksum and stream a temporary file, with two concurrent downloads
+per server process by default (`--download-workers` changes this). Excess
+downloads receive HTTP 429 with `Retry-After`; `If-None-Match` supports HTTP
+304. The API has no write routes. Keep the default loopback binding for local
+use; authentication and the frontend are not part of this API release.
 
 ## Early stopping
 
@@ -336,11 +488,15 @@ DOTS_CORDON_TEST_SERVER=127.0.0.1:50051 uv run pytest
 ## Audit implementation
 
 `dots_cordon_ml/audit/service.py` exposes `AuditService`, the application entry
-point shared by runners and a future HTTP API. It validates checkpoint lineage,
+point shared by runners and the HTTP API. It validates checkpoint lineage,
 evaluation evidence, and champion promotion. Runners pass ordinary Python
 values and do not access SQL directly.
 
 `audit/repository.py` owns SQL queries and checkpoint BLOB access.
+`AuditService.reader()` exposes the bounded read views in `audit/reader.py`;
+`audit/read_repository.py` implements their SQL projections and pagination.
+Each read scope uses one consistent database snapshot, with batched metadata
+queries and no writer lock. HTTP response models live in `audit/web/schemas.py`.
 `audit/database.py` owns SQLAlchemy engine configuration, transaction boundaries,
 and the Alembic lifecycle. Migrations live in `audit/migrations/versions/`.
 Changing `audit/schema.py` requires a new migration containing the explicit

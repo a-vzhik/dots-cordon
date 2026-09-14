@@ -6,3 +6,4 @@ __pycache__/
 checkpoints/
 logs/
 /audit/
+/dots_cordon_ml/audit/web/static/

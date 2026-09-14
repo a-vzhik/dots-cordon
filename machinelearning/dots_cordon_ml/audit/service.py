@@ -65,10 +65,17 @@ def _match_score(batch):
 
 
 class AuditService:
-    def __init__(self, database_url: str | None = None):
-        self.database = Database(database_url)
+    def __init__(
+        self,
+        database_url: str | None = None,
+        *,
+        read_only: bool = False,
+        check_schema: bool = True,
+    ):
+        self.database = Database(database_url, read_only=read_only)
         try:
-            self.database.check_schema()
+            if check_schema:
+                self.database.check_schema()
         except BaseException:
             self.database.close()
             raise
@@ -81,6 +88,16 @@ class AuditService:
 
     def close(self):
         self.database.close()
+
+    @contextmanager
+    def reader(self):
+        """Bounded application queries for HTTP and other read clients."""
+        from .read_repository import AuditReadRepository
+        from .reader import AuditReader
+
+        self.database.check_schema()
+        with self.database.read_snapshot() as connection:
+            yield AuditReader(AuditReadRepository(connection))
 
     @contextmanager
     def _repositories(self):
@@ -774,6 +791,71 @@ class AuditService:
                     "heartbeat_at": timestamp,
                 },
             )
+
+    def select_best_screened_checkpoint(self, attempt_id, evaluation_ids) -> dict:
+        """Select the attempt's best candidate using complete, comparable screens.
+
+        Match score ranks first, mean score difference breaks ties, and candidate
+        order resolves exact ties, matching the champion loop's screening order.
+        Qualification and champion promotion do not change this selection.
+        """
+        with self._repositories() as (repository, _):
+            attempt = repository.get_attempt(attempt_id)
+            repository.lock_experiment(attempt["experiment_id"])
+            checkpoints = repository.list_checkpoints(attempt_id)
+            candidates = sorted(
+                (item for item in checkpoints if item["is_screening_candidate"]),
+                key=lambda item: (
+                    item["candidate_index"]
+                    if item["candidate_index"] is not None
+                    else item["save_sequence"],
+                    item["save_sequence"],
+                ),
+            )
+            batches = {}
+            for evaluation_id in evaluation_ids:
+                batch = repository.get_evaluation(evaluation_id)
+                if (
+                    batch["attempt_id"] != attempt_id
+                    or batch["purpose"] != "screening"
+                    or batch["opponent_kind"] != "random"
+                ):
+                    raise AuditError(
+                        "Best selection requires this attempt's random screens"
+                    )
+                if batch["checkpoint_id"] in batches:
+                    raise AuditError("Best selection requires one screen per candidate")
+                _complete(batch)
+                batches[batch["checkpoint_id"]] = batch
+            if not candidates or set(batches) != {item["id"] for item in candidates}:
+                raise AuditError(
+                    "Best selection requires all of the attempt's candidates"
+                )
+            baseline = batches[candidates[0]["id"]]
+            for batch in batches.values():
+                _matched_definitions(batch, baseline)
+
+            def rank(checkpoint):
+                batch = batches[checkpoint["id"]]
+                games = sum(suite["expected_games"] for suite in batch["suites"])
+                difference = sum(
+                    suite[f"player_{seat}_score_difference_sum"]
+                    for suite in batch["suites"]
+                    for seat in (0, 1)
+                )
+                return _match_score(batch), difference / games
+
+            best = max(candidates, key=rank)
+            if [item["id"] for item in checkpoints if item["is_best_in_attempt"]] == [
+                best["id"]
+            ]:
+                return best
+            repository.clear_checkpoint_selection(attempt_id, "is_best_in_attempt")
+            best = repository.update_checkpoint_flags(
+                best["id"], {"is_best_in_attempt": True}
+            )
+            repository.update_attempt(attempt_id, {"updated_at": now()})
+            return best
 
     def record_decision(
         self,
