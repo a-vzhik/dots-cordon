@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import time
 
 import grpc
 import torch
@@ -58,7 +59,23 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--candidate-count", type=int, default=4)
     parser.add_argument("--candidate-interval", type=int, default=250)
-    parser.add_argument("--training-seed", type=int, default=7)
+    parser.add_argument(
+        "--training-seed",
+        type=int,
+        default=None,
+        help=(
+            "training RNG seed; defaults to the current Unix timestamp in "
+            "milliseconds"
+        ),
+    )
+    parser.add_argument(
+        "--fresh-training-rng",
+        action="store_true",
+        help=(
+            "start each round's training random streams from --training-seed "
+            "instead of restoring them from the champion"
+        ),
+    )
     parser.add_argument(
         "--training-opponent",
         choices=("frozen", "self-play"),
@@ -177,6 +194,15 @@ def _round_seeds(base: int, round_number: int, count: int) -> tuple[int, ...]:
     return tuple(start + offset for offset in range(count))
 
 
+def _initial_training_seed(
+    configured_seed: int | None,
+    round_number: int,
+) -> int:
+    if configured_seed is None:
+        return time.time_ns() // 1_000_000
+    return configured_seed + round_number - 1
+
+
 def _next_round_number(run_dir: Path) -> int:
     pattern = re.compile(r"^round-(\d+)-")
     existing: list[int] = []
@@ -200,7 +226,7 @@ def _run_training_round(
     champion: Path,
     metadata: CheckpointMetadata,
     round_dir: Path,
-    round_number: int,
+    training_seed: int,
 ) -> tuple[Path, ...]:
     checkpoint_dir = round_dir / "candidates"
     final_episode = metadata.episode + args.candidate_count * args.candidate_interval
@@ -218,7 +244,7 @@ def _run_training_round(
         "--episodes",
         str(final_episode),
         "--seed",
-        str(args.training_seed + round_number - 1),
+        str(training_seed),
         "--device",
         args.device,
         "--random-opponent-probability",
@@ -241,6 +267,8 @@ def _run_training_round(
     ]
     if args.training_opponent == "frozen":
         arguments.extend(("--frozen-opponent", str(champion)))
+    if args.fresh_training_rng:
+        arguments.append("--reset-rng-on-resume")
 
     exit_code = train.run(train.parse_args(arguments))
     if exit_code:
@@ -400,6 +428,10 @@ def run(args: argparse.Namespace) -> int:
     args.run_dir.mkdir(parents=True, exist_ok=True)
     device = _device(args.device)
     round_number = _next_round_number(args.run_dir)
+    initial_training_seed = _initial_training_seed(
+        args.training_seed,
+        round_number,
+    )
     rounds_completed = 0
 
     while args.max_rounds == 0 or rounds_completed < args.max_rounds:
@@ -417,9 +449,11 @@ def run(args: argparse.Namespace) -> int:
         round_dir.mkdir(parents=True, exist_ok=False)
         round_champion = round_dir / "champion-before.pt"
         _atomic_copy(args.champion, round_champion)
+        training_seed = initial_training_seed + rounds_completed
         print(
             f"\nround={round_number} champion={args.champion} "
-            f"episode={champion_metadata.episode} artifacts={round_dir}",
+            f"episode={champion_metadata.episode} training-seed={training_seed} "
+            f"artifacts={round_dir}",
             flush=True,
         )
 
@@ -428,7 +462,7 @@ def run(args: argparse.Namespace) -> int:
             round_champion,
             champion_metadata,
             round_dir,
-            round_number,
+            training_seed,
         )
         screen_seeds = _round_seeds(
             args.screen_seed, round_number, args.screen_suites
@@ -441,6 +475,8 @@ def run(args: argparse.Namespace) -> int:
             "champion_before": str(round_champion),
             "champion_episode": champion_metadata.episode,
             "training_opponent": args.training_opponent,
+            "fresh_training_rng": args.fresh_training_rng,
+            "training_seed": training_seed,
             "random_opponent_probability": args.random_opponent_probability,
             "candidate_interval": args.candidate_interval,
             "screen_games_per_suite": args.screen_games,

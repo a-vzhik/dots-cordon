@@ -171,6 +171,7 @@ uv run dots-cordon-champion-loop \
   --server 127.0.0.1:50051 \
   --champion checkpoints/dqn-champion.pt \
   --run-dir checkpoints/champion-loop \
+  --fresh-training-rng \
   2>&1 | tee logs/champion-loop.log
 ```
 
@@ -196,6 +197,16 @@ Set a positive limit to cap one invocation. Every round retains
 `results.json` under the run directory. Screening and head-to-head seed ranges
 advance between rounds so the loop does not repeatedly select against one
 fixed evaluation suite.
+
+Pass `--fresh-training-rng` when starting another branch from an unchanged
+champion. It keeps the checkpoint's weights, optimizer, episode count, and
+environment-step count, but initializes exploration, replay sampling,
+opponent selection/actions, and seat alternation from a new seed. By default,
+the loop uses the current Unix timestamp in milliseconds, prints it, and saves
+it in the round's `results.json`; pass `--training-seed NUMBER` only when you
+want a reproducible value. Without `--fresh-training-rng`, resuming restores
+the random streams from the checkpoint for exact continuation. The loop
+increments the resolved training seed between rounds in one invocation.
 
 ## Tests
 

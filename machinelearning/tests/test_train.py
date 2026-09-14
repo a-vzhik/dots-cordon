@@ -10,7 +10,9 @@ from dots_cordon_ml.self_play import EvaluationResult, MatchStats
 from dots_cordon_ml.train import (
     EvaluationMonitor,
     _capture_rng_state,
+    _rng_source,
     _restore_rng_state,
+    parse_args,
 )
 
 
@@ -43,6 +45,16 @@ def agent(seed: int) -> DQNAgent:
         channels=8,
         blocks=0,
     )
+
+
+def test_resume_rng_can_be_restored_or_reset_from_seed() -> None:
+    restored = parse_args(["--resume", "checkpoint.pt"])
+    reset = parse_args(
+        ["--resume", "checkpoint.pt", "--reset-rng-on-resume", "--seed", "19"]
+    )
+
+    assert _rng_source(restored, {"saved": True}) == "checkpoint"
+    assert _rng_source(reset, {"saved": True}) == "fresh-seed:19"
 
 
 def test_monitor_saves_small_best_but_does_not_reset_patience() -> None:

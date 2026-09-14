@@ -9,6 +9,7 @@ import dots_cordon_ml.champion_loop as champion_loop
 from dots_cordon_ml.checkpoint import CheckpointMetadata
 from dots_cordon_ml.champion_loop import (
     EvaluatedCheckpoint,
+    _initial_training_seed,
     _passes_promotion,
     _passes_random_screen,
     _round_seeds,
@@ -41,12 +42,33 @@ def test_defaults_describe_four_candidate_thousand_episode_round() -> None:
 
     assert args.candidate_count == 4
     assert args.candidate_interval == 250
+    assert args.training_seed is None
+    assert not args.fresh_training_rng
     assert args.training_opponent == "frozen"
     assert args.screen_max_regression == 0.003
     assert args.screen_suites == 3
     assert args.screen_games == 1_000
     assert args.head_to_head_suites == 3
     assert args.head_to_head_games == 1_000
+
+
+def test_fresh_training_rng_parameter_is_available() -> None:
+    args = parse_args(["--fresh-training-rng", "--training-seed", "19"])
+
+    assert args.fresh_training_rng
+    assert args.training_seed == 19
+
+
+def test_training_seed_defaults_to_unix_milliseconds(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(champion_loop.time, "time_ns", lambda: 1_234_567_890_000_000)
+
+    assert _initial_training_seed(None, round_number=8) == 1_234_567_890
+
+
+def test_explicit_training_seed_accounts_for_existing_rounds() -> None:
+    assert _initial_training_seed(19, round_number=8) == 26
 
 
 def test_round_seeds_are_fresh_and_non_overlapping() -> None:

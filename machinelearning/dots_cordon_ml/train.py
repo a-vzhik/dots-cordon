@@ -160,6 +160,14 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints"))
     parser.add_argument("--resume", type=Path)
+    parser.add_argument(
+        "--reset-rng-on-resume",
+        action="store_true",
+        help=(
+            "load weights, optimizer, and counters from --resume but initialize "
+            "training random streams from --seed"
+        ),
+    )
     parser.add_argument("--rpc-timeout", type=float, default=10.0)
     args = parser.parse_args(arguments)
     _validate_args(parser, args)
@@ -331,7 +339,7 @@ def run(args: argparse.Namespace) -> int:
     state = TrainingState()
     if args.resume is not None:
         state, rng_state = _load_checkpoint(args.resume, agent, args)
-        if rng_state is not None:
+        if rng_state is not None and not args.reset_rng_on_resume:
             random_opponent_episodes, frozen_opponent_episodes = _restore_rng_state(
                 rng_state,
                 agent,
@@ -384,7 +392,8 @@ def run(args: argparse.Namespace) -> int:
         f"training on {args.rows}x{args.columns} via {args.server} "
         f"using {device} (starting episode {state.episode + 1}, "
         f"random-opponent probability {args.random_opponent_probability:.2f}, "
-        f"other opponent={'frozen' if frozen_opponent is not None else 'self-play'})",
+        f"other opponent={'frozen' if frozen_opponent is not None else 'self-play'}, "
+        f"rng={_rng_source(args, rng_state if args.resume is not None else None)})",
         flush=True,
     )
 
@@ -573,6 +582,17 @@ def _format_stats(stats: MatchStats) -> str:
         f"{stats.wins}/{stats.draws}/{stats.losses}"
         f"({stats.mean_score_difference:+.3f})"
     )
+
+
+def _rng_source(
+    args: argparse.Namespace,
+    checkpoint_rng_state: dict[str, Any] | None,
+) -> str:
+    if args.resume is None:
+        return f"seed:{args.seed}"
+    if args.reset_rng_on_resume or checkpoint_rng_state is None:
+        return f"fresh-seed:{args.seed}"
+    return "checkpoint"
 
 
 def _score_summary(
