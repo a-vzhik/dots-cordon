@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Barrier, Lock, get_ident
 
 import torch
 from pytest import MonkeyPatch
@@ -9,6 +10,8 @@ import dots_cordon_ml.champion_loop as champion_loop
 from dots_cordon_ml.checkpoint import CheckpointMetadata
 from dots_cordon_ml.champion_loop import (
     EvaluatedCheckpoint,
+    _evaluate_head_to_head_suites,
+    _evaluate_random_screen,
     _initial_training_seed,
     _passes_promotion,
     _passes_random_screen,
@@ -42,6 +45,7 @@ def test_defaults_describe_four_candidate_thousand_episode_round() -> None:
 
     assert args.candidate_count == 4
     assert args.candidate_interval == 250
+    assert args.evaluation_workers == 5
     assert args.training_seed is None
     assert not args.fresh_training_rng
     assert args.training_opponent == "frozen"
@@ -59,10 +63,10 @@ def test_fresh_training_rng_parameter_is_available() -> None:
     assert args.training_seed == 19
 
 
-def test_training_seed_defaults_to_unix_milliseconds(
+def test_training_seed_defaults_to_unix_seconds(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(champion_loop.time, "time_ns", lambda: 1_234_567_890_000_000)
+    monkeypatch.setattr(champion_loop.time, "time", lambda: 1_234_567_890.987)
 
     assert _initial_training_seed(None, round_number=8) == 1_234_567_890
 
@@ -74,6 +78,91 @@ def test_explicit_training_seed_accounts_for_existing_rounds() -> None:
 def test_round_seeds_are_fresh_and_non_overlapping() -> None:
     assert _round_seeds(100, 1, 3) == (100, 101, 102)
     assert _round_seeds(100, 2, 3) == (103, 104, 105)
+
+
+def test_random_screen_runs_checkpoints_in_parallel_and_preserves_order(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    args = parse_args(["--evaluation-workers", "3"])
+    paths = tuple(Path(f"candidate-{index}.pt") for index in range(3))
+    barrier = Barrier(3)
+    lock = Lock()
+    thread_ids: set[int] = set()
+
+    def fake_evaluate(
+        _args: object,
+        path: Path,
+        _device: object,
+        _suite_seeds: object,
+        _games: int,
+    ) -> EvaluatedCheckpoint:
+        with lock:
+            thread_ids.add(get_ident())
+        barrier.wait(timeout=5)
+        item = evaluated(int(path.stem[-1]), 1, 0, 0, 1.0)
+        return EvaluatedCheckpoint(path, item.metadata, item.suites, item.aggregate)
+
+    monkeypatch.setattr(
+        champion_loop,
+        "_evaluate_against_random_suites",
+        fake_evaluate,
+    )
+
+    results = _evaluate_random_screen(
+        args,
+        paths,
+        torch.device("cpu"),
+        (100,),
+        1,
+    )
+
+    assert tuple(item.path for item in results) == paths
+    assert len(thread_ids) == 3
+
+
+def test_head_to_head_suites_run_in_parallel_and_preserve_seed_order(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    args = parse_args(["--evaluation-workers", "3"])
+    challenger = evaluated(200, 1, 0, 0, 1.0)
+    champion = evaluated(100, 1, 0, 0, 1.0)
+    suite_seeds = (100, 101, 102)
+    barrier = Barrier(3)
+    lock = Lock()
+    thread_ids: set[int] = set()
+
+    def fake_suite(
+        _args: object,
+        _challenger: object,
+        _champion: object,
+        _device: object,
+        suite_seed: int,
+        _games: int,
+        _opening_random_moves: int,
+    ) -> EvaluationResult:
+        with lock:
+            thread_ids.add(get_ident())
+        barrier.wait(timeout=5)
+        return result(suite_seed, 0, 1, float(suite_seed))
+
+    monkeypatch.setattr(
+        champion_loop,
+        "_evaluate_head_to_head_suite",
+        fake_suite,
+    )
+
+    results = _evaluate_head_to_head_suites(
+        args,
+        challenger,
+        champion,
+        torch.device("cpu"),
+        suite_seeds,
+        games=1,
+        opening_random_moves=4,
+    )
+
+    assert tuple(item.overall.wins for item in results) == suite_seeds
+    assert len(thread_ids) == 3
 
 
 def test_random_screen_allows_at_most_point_zero_zero_three_regression() -> None:
@@ -186,6 +275,8 @@ def test_loop_promotes_a_screened_head_to_head_winner(
             "1",
             "--max-rounds",
             "1",
+            "--device",
+            "cpu",
         ]
     )
 

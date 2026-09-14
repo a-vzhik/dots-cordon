@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import re
@@ -60,12 +62,20 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--candidate-count", type=int, default=4)
     parser.add_argument("--candidate-interval", type=int, default=250)
     parser.add_argument(
+        "--evaluation-workers",
+        type=int,
+        default=5,
+        help=(
+            "maximum parallel random-screen checkpoints or head-to-head suites"
+        ),
+    )
+    parser.add_argument(
         "--training-seed",
         type=int,
         default=None,
         help=(
             "training RNG seed; defaults to the current Unix timestamp in "
-            "milliseconds"
+            "seconds"
         ),
     )
     parser.add_argument(
@@ -129,6 +139,7 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
     positive = (
         "candidate_count",
         "candidate_interval",
+        "evaluation_workers",
         "training_log_every",
         "screen_games",
         "screen_suites",
@@ -189,6 +200,28 @@ def _load_agent(
     return agent
 
 
+def _game_environment(
+    args: argparse.Namespace,
+    metadata: CheckpointMetadata,
+) -> GameEnvironment:
+    return GameEnvironment(
+        target=args.server,
+        rows=metadata.rows,
+        columns=metadata.columns,
+        max_turns=args.max_turns,
+        rpc_timeout=args.rpc_timeout,
+    )
+
+
+def _evaluation_executor(device: torch.device, max_workers: int) -> Executor:
+    if device.type == "mps":
+        return ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=multiprocessing.get_context("spawn"),
+        )
+    return ThreadPoolExecutor(max_workers=max_workers)
+
+
 def _round_seeds(base: int, round_number: int, count: int) -> tuple[int, ...]:
     start = base + (round_number - 1) * count
     return tuple(start + offset for offset in range(count))
@@ -199,7 +232,7 @@ def _initial_training_seed(
     round_number: int,
 ) -> int:
     if configured_seed is None:
-        return time.time_ns() // 1_000_000
+        return int(time.time())
     return configured_seed + round_number - 1
 
 
@@ -288,7 +321,7 @@ def _run_training_round(
 
 
 def _evaluate_against_random_suites(
-    environment: GameEnvironment,
+    args: argparse.Namespace,
     path: Path,
     device: torch.device,
     suite_seeds: tuple[int, ...],
@@ -298,18 +331,53 @@ def _evaluate_against_random_suites(
     del checkpoint
     agent = _load_agent(path, metadata, device, suite_seeds[0])
     results: list[EvaluationResult] = []
-    print(f"random-screen checkpoint={path} episode={metadata.episode}", flush=True)
-    for suite_seed in suite_seeds:
-        result = evaluate_against_random(
-            environment,
-            agent,
-            random_game_seeds(games, suite_seed),
-        )
-        results.append(result)
-        print(f"  seed={suite_seed} {_format_stats(result.overall)}", flush=True)
+    with _game_environment(args, metadata) as environment:
+        for suite_seed in suite_seeds:
+            result = evaluate_against_random(
+                environment,
+                agent,
+                random_game_seeds(games, suite_seed),
+            )
+            results.append(result)
+            print(
+                f"random-screen checkpoint={path} episode={metadata.episode} "
+                f"seed={suite_seed} {_format_stats(result.overall)}",
+                flush=True,
+            )
     aggregate = combine_evaluation_results(results)
-    print(f"  aggregate {_format_stats(aggregate.overall)}", flush=True)
+    print(
+        f"random-screen checkpoint={path} episode={metadata.episode} "
+        f"aggregate {_format_stats(aggregate.overall)}",
+        flush=True,
+    )
     return EvaluatedCheckpoint(path, metadata, tuple(results), aggregate)
+
+
+def _evaluate_random_screen(
+    args: argparse.Namespace,
+    paths: tuple[Path, ...],
+    device: torch.device,
+    suite_seeds: tuple[int, ...],
+    games: int,
+) -> tuple[EvaluatedCheckpoint, ...]:
+    worker_count = min(args.evaluation_workers, len(paths))
+    print(
+        f"random-screen checkpoints={len(paths)} parallel-workers={worker_count}",
+        flush=True,
+    )
+    with _evaluation_executor(device, worker_count) as executor:
+        futures = tuple(
+            executor.submit(
+                _evaluate_against_random_suites,
+                args,
+                path,
+                device,
+                suite_seeds,
+                games,
+            )
+            for path in paths
+        )
+        return tuple(future.result() for future in futures)
 
 
 def _passes_random_screen(
@@ -332,7 +400,7 @@ def _screen_rank(item: EvaluatedCheckpoint) -> tuple[float, float]:
 
 
 def _evaluate_head_to_head_suites(
-    environment: GameEnvironment,
+    args: argparse.Namespace,
     candidate: EvaluatedCheckpoint,
     champion: EvaluatedCheckpoint,
     device: torch.device,
@@ -340,31 +408,59 @@ def _evaluate_head_to_head_suites(
     games: int,
     opening_random_moves: int,
 ) -> tuple[EvaluationResult, ...]:
-    candidate_agent = _load_agent(
-        candidate.path, candidate.metadata, device, suite_seeds[0]
-    )
-    champion_agent = _load_agent(
-        champion.path, champion.metadata, device, suite_seeds[0] + 1
-    )
-    results: list[EvaluationResult] = []
+    worker_count = min(args.evaluation_workers, len(suite_seeds))
     print(
         f"head-to-head challenger={candidate.path} episode={candidate.metadata.episode} "
-        f"champion-episode={champion.metadata.episode}",
+        f"champion-episode={champion.metadata.episode} "
+        f"parallel-workers={worker_count}",
         flush=True,
     )
-    for suite_seed in suite_seeds:
-        result = evaluate_head_to_head(
+    with _evaluation_executor(device, worker_count) as executor:
+        futures = tuple(
+            executor.submit(
+                _evaluate_head_to_head_suite,
+                args,
+                candidate,
+                champion,
+                device,
+                suite_seed,
+                games,
+                opening_random_moves,
+            )
+            for suite_seed in suite_seeds
+        )
+        results = tuple(future.result() for future in futures)
+
+    for suite_seed, result in zip(suite_seeds, results, strict=True):
+        print(f"  seed={suite_seed} {_format_stats(result.overall)}", flush=True)
+    aggregate = combine_evaluation_results(results)
+    print(f"  aggregate {_format_stats(aggregate.overall)}", flush=True)
+    return results
+
+
+def _evaluate_head_to_head_suite(
+    args: argparse.Namespace,
+    candidate: EvaluatedCheckpoint,
+    champion: EvaluatedCheckpoint,
+    device: torch.device,
+    suite_seed: int,
+    games: int,
+    opening_random_moves: int,
+) -> EvaluationResult:
+    candidate_agent = _load_agent(
+        candidate.path, candidate.metadata, device, suite_seed
+    )
+    champion_agent = _load_agent(
+        champion.path, champion.metadata, device, suite_seed + 1
+    )
+    with _game_environment(args, candidate.metadata) as environment:
+        return evaluate_head_to_head(
             environment,
             candidate_agent,
             champion_agent,
             random_game_seeds(games, suite_seed),
             opening_random_moves,
         )
-        results.append(result)
-        print(f"  seed={suite_seed} {_format_stats(result.overall)}", flush=True)
-    aggregate = combine_evaluation_results(results)
-    print(f"  aggregate {_format_stats(aggregate.overall)}", flush=True)
-    return tuple(results)
 
 
 def _passes_promotion(
@@ -477,6 +573,7 @@ def run(args: argparse.Namespace) -> int:
             "training_opponent": args.training_opponent,
             "fresh_training_rng": args.fresh_training_rng,
             "training_seed": training_seed,
+            "evaluation_workers": args.evaluation_workers,
             "random_opponent_probability": args.random_opponent_probability,
             "candidate_interval": args.candidate_interval,
             "screen_games_per_suite": args.screen_games,
@@ -489,96 +586,79 @@ def run(args: argparse.Namespace) -> int:
             "promotion_min_suite_wins": args.promotion_min_suite_wins,
         }
 
-        with GameEnvironment(
-            target=args.server,
-            rows=champion_metadata.rows,
-            columns=champion_metadata.columns,
-            max_turns=args.max_turns,
-            rpc_timeout=args.rpc_timeout,
-        ) as environment:
-            champion_result = _evaluate_against_random_suites(
-                environment,
-                round_champion,
-                device,
-                screen_seeds,
-                args.screen_games,
-            )
-            candidate_results = [
-                _evaluate_against_random_suites(
-                    environment,
-                    path,
-                    device,
-                    screen_seeds,
-                    args.screen_games,
-                )
-                for path in candidates
-            ]
-            summary["random_screen"] = {
-                "champion": _evaluated_dict(champion_result),
-                "candidates": [_evaluated_dict(item) for item in candidate_results],
-            }
+        screened = _evaluate_random_screen(
+            args,
+            (round_champion, *candidates),
+            device,
+            screen_seeds,
+            args.screen_games,
+        )
+        champion_result = screened[0]
+        candidate_results = screened[1:]
+        summary["random_screen"] = {
+            "champion": _evaluated_dict(champion_result),
+            "candidates": [_evaluated_dict(item) for item in candidate_results],
+        }
 
-            contenders = sorted(
-                (
-                    item
-                    for item in candidate_results
-                    if _passes_random_screen(
-                        item, champion_result, args.screen_max_regression
-                    )
-                ),
-                key=_screen_rank,
-                reverse=True,
+        contenders = sorted(
+            (
+                item
+                for item in candidate_results
+                if _passes_random_screen(
+                    item, champion_result, args.screen_max_regression
+                )
+            ),
+            key=_screen_rank,
+            reverse=True,
+        )
+        print(
+            "random-screen contenders="
+            + (
+                ",".join(str(item.metadata.episode) for item in contenders)
+                if contenders
+                else "none"
+            ),
+            flush=True,
+        )
+
+        challenges: list[dict[str, object]] = []
+        promoted: EvaluatedCheckpoint | None = None
+        for contender in contenders:
+            suites = _evaluate_head_to_head_suites(
+                args,
+                contender,
+                champion_result,
+                device,
+                head_to_head_seeds,
+                args.head_to_head_games,
+                args.opening_random_moves,
+            )
+            aggregate = combine_evaluation_results(suites)
+            suite_wins = sum(result.overall.match_score > 0.5 for result in suites)
+            passed = _passes_promotion(
+                suites,
+                args.promotion_min_match_score,
+                args.promotion_min_suite_wins,
+            )
+            challenges.append(
+                {
+                    "path": str(contender.path),
+                    "episode": contender.metadata.episode,
+                    "suites": [_result_dict(result) for result in suites],
+                    "aggregate": _result_dict(aggregate),
+                    "suite_wins": suite_wins,
+                    "passed": passed,
+                }
             )
             print(
-                "random-screen contenders="
-                + (
-                    ",".join(str(item.metadata.episode) for item in contenders)
-                    if contenders
-                    else "none"
-                ),
+                f"promotion-gate episode={contender.metadata.episode} "
+                f"suite-wins={suite_wins}/{args.head_to_head_suites} "
+                f"passed={'yes' if passed else 'no'}",
                 flush=True,
             )
-
-            challenges: list[dict[str, object]] = []
-            promoted: EvaluatedCheckpoint | None = None
-            for contender in contenders:
-                suites = _evaluate_head_to_head_suites(
-                    environment,
-                    contender,
-                    champion_result,
-                    device,
-                    head_to_head_seeds,
-                    args.head_to_head_games,
-                    args.opening_random_moves,
-                )
-                aggregate = combine_evaluation_results(suites)
-                suite_wins = sum(
-                    result.overall.match_score > 0.5 for result in suites
-                )
-                passed = _passes_promotion(
-                    suites,
-                    args.promotion_min_match_score,
-                    args.promotion_min_suite_wins,
-                )
-                challenges.append(
-                    {
-                        "path": str(contender.path),
-                        "episode": contender.metadata.episode,
-                        "suites": [_result_dict(result) for result in suites],
-                        "aggregate": _result_dict(aggregate),
-                        "suite_wins": suite_wins,
-                        "passed": passed,
-                    }
-                )
-                print(
-                    f"promotion-gate episode={contender.metadata.episode} "
-                    f"suite-wins={suite_wins}/{args.head_to_head_suites} "
-                    f"passed={'yes' if passed else 'no'}",
-                    flush=True,
-                )
-                if passed:
-                    promoted = contender
-                    break
+            if passed:
+                promoted = contender
+                break
 
         summary["head_to_head"] = challenges
         if promoted is None:

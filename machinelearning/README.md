@@ -191,6 +191,13 @@ screen-qualified candidate is tested. If none qualifies or passes, the
 command stops without changing the champion. Otherwise it starts another
 round from the promoted checkpoint.
 
+Random screening evaluates the champion and four candidates concurrently,
+and the three suites in each head-to-head challenge also run concurrently.
+The default `--evaluation-workers 5` matches the default random-screen size;
+set it to `1` to disable parallel evaluation or lower it when memory is tight.
+Each worker owns one model instance and one server-side game, so start the
+server with `--max-games` at least as large as the worker count.
+
 `--max-rounds 0`, the default, continues until a round produces no promotion.
 Set a positive limit to cap one invocation. Every round retains
 `champion-before.pt`, all candidate checkpoints, and a machine-readable
@@ -202,7 +209,7 @@ Pass `--fresh-training-rng` when starting another branch from an unchanged
 champion. It keeps the checkpoint's weights, optimizer, episode count, and
 environment-step count, but initializes exploration, replay sampling,
 opponent selection/actions, and seat alternation from a new seed. By default,
-the loop uses the current Unix timestamp in milliseconds, prints it, and saves
+the loop uses the current Unix timestamp in seconds, prints it, and saves
 it in the round's `results.json`; pass `--training-seed NUMBER` only when you
 want a reproducible value. Without `--fresh-training-rng`, resuming restores
 the random streams from the checkpoint for exact continuation. The loop
