@@ -6,8 +6,12 @@ from dots_cordon_ml.dqn import ReplayBuffer
 from dots_cordon_ml.environment import StepResult
 from dots_cordon_ml.proto import game_pb2
 from dots_cordon_ml.self_play import (
+    EvaluationResult,
+    MatchStats,
+    collect_against_agent_episode,
     collect_against_random_episode,
     collect_self_play_episode,
+    combine_evaluation_results,
     evaluate_against_random,
     evaluate_head_to_head,
     random_game_seeds,
@@ -129,6 +133,28 @@ def test_random_opponent_episode_records_only_learner_transitions() -> None:
     assert [item.done for item in transitions] == [False, True]
 
 
+def test_frozen_opponent_episode_records_only_learner_transitions() -> None:
+    replay = ReplayBuffer(capacity=10, seed=1)
+    opponent = FixedActionAgent(1)
+    result = collect_against_agent_episode(
+        ScriptedEnvironment(),
+        FirstLegalAgent(),
+        opponent,
+        replay,
+        epsilon=0.5,
+        learner_player=0,
+        terminal_win_bonus=1.0,
+    )
+
+    transitions = list(replay)
+    assert result.transitions == 2
+    assert result.opponent == "frozen"
+    assert result.learner_player == 0
+    assert opponent.calls == 1
+    assert [item.reward for item in transitions] == [-1.0, -1.0]
+    assert [item.done for item in transitions] == [False, True]
+
+
 class OneMoveEvaluationEnvironment:
     def __init__(self) -> None:
         self._scores = iter([(2, 0), (1, 1), (0, 1), (0, 3)])
@@ -173,6 +199,20 @@ def test_evaluation_reports_reproducible_overall_and_seat_results() -> None:
     assert result.as_player_0.mean_score_difference == 0.5
     assert (result.as_player_1.wins, result.as_player_1.draws) == (1, 1)
     assert result.as_player_1.mean_score_difference == 1.5
+
+
+def test_evaluation_results_are_combined_by_game_count() -> None:
+    first_stats = MatchStats(2, 1, 1, 0, 2.0)
+    second_stats = MatchStats(4, 2, 0, 2, -1.0)
+    first = EvaluationResult(first_stats, first_stats, first_stats)
+    second = EvaluationResult(second_stats, second_stats, second_stats)
+
+    combined = combine_evaluation_results((first, second))
+
+    assert combined.overall.games == 6
+    assert (combined.wins, combined.draws, combined.losses) == (3, 1, 2)
+    assert combined.overall.match_score == 3.5 / 6
+    assert combined.mean_score_difference == 0.0
 
 
 class OneMoveHeadToHeadEnvironment:

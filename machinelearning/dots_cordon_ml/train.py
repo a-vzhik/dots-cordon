@@ -22,6 +22,7 @@ from .self_play import (
     EpisodeResult,
     EvaluationResult,
     MatchStats,
+    collect_against_agent_episode,
     collect_against_random_episode,
     collect_self_play_episode,
     evaluate_against_random,
@@ -119,6 +120,14 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         default=0.0,
         help="fraction of training episodes played against a random opponent",
     )
+    parser.add_argument(
+        "--frozen-opponent",
+        type=Path,
+        help=(
+            "checkpoint used as a greedy frozen opponent for non-random episodes; "
+            "without it those episodes use self-play"
+        ),
+    )
     parser.add_argument("--log-every", type=int, default=25)
     parser.add_argument("--eval-every", type=int, default=250)
     parser.add_argument("--eval-games", type=int, default=40)
@@ -144,6 +153,11 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         help="match-score increase required to reset early-stopping patience",
     )
     parser.add_argument("--checkpoint-every", type=int, default=250)
+    parser.add_argument(
+        "--checkpoint-relative-to-start",
+        action="store_true",
+        help="measure checkpoint intervals from the resumed episode",
+    )
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints"))
     parser.add_argument("--resume", type=Path)
     parser.add_argument("--rpc-timeout", type=float, default=10.0)
@@ -263,6 +277,7 @@ def _capture_rng_state(
     opponent_selection_random: np.random.Generator,
     training_opponent_random: np.random.Generator,
     random_opponent_episodes: int,
+    frozen_opponent_episodes: int = 0,
 ) -> dict[str, Any]:
     return {
         "agent": agent.random.bit_generator.state,
@@ -270,6 +285,7 @@ def _capture_rng_state(
         "opponent_selection": opponent_selection_random.bit_generator.state,
         "training_opponent": training_opponent_random.bit_generator.state,
         "random_opponent_episodes": random_opponent_episodes,
+        "frozen_opponent_episodes": frozen_opponent_episodes,
     }
 
 
@@ -279,7 +295,7 @@ def _restore_rng_state(
     replay: ReplayBuffer,
     opponent_selection_random: np.random.Generator,
     training_opponent_random: np.random.Generator,
-) -> int:
+) -> tuple[int, int]:
     try:
         agent.random.bit_generator.state = rng_state["agent"]
         replay.restore_random_state(rng_state["replay"])
@@ -287,7 +303,10 @@ def _restore_rng_state(
             "opponent_selection"
         ]
         training_opponent_random.bit_generator.state = rng_state["training_opponent"]
-        return int(rng_state["random_opponent_episodes"])
+        return (
+            int(rng_state["random_opponent_episodes"]),
+            int(rng_state.get("frozen_opponent_episodes", 0)),
+        )
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("checkpoint contains invalid random state") from exc
 
@@ -308,11 +327,12 @@ def run(args: argparse.Namespace) -> int:
     opponent_selection_random = np.random.default_rng(args.seed + 1)
     training_opponent_random = np.random.default_rng(args.seed + 2)
     random_opponent_episodes = 0
+    frozen_opponent_episodes = 0
     state = TrainingState()
     if args.resume is not None:
         state, rng_state = _load_checkpoint(args.resume, agent, args)
         if rng_state is not None:
-            random_opponent_episodes = _restore_rng_state(
+            random_opponent_episodes, frozen_opponent_episodes = _restore_rng_state(
                 rng_state,
                 agent,
                 replay,
@@ -320,6 +340,25 @@ def run(args: argparse.Namespace) -> int:
                 training_opponent_random,
             )
     starting_episode = state.episode
+    frozen_opponent: DQNAgent | None = None
+    if args.frozen_opponent is not None:
+        frozen_checkpoint, frozen_metadata = read_checkpoint(
+            args.frozen_opponent, map_location=device
+        )
+        if frozen_metadata.board != (args.rows, args.columns):
+            raise ValueError(
+                f"frozen opponent board is {frozen_metadata.board}, "
+                f"expected {(args.rows, args.columns)}"
+            )
+        frozen_opponent = DQNAgent(
+            device=device,
+            learning_rate=args.learning_rate,
+            gamma=args.gamma,
+            seed=args.seed + 3,
+            channels=frozen_metadata.channels,
+            blocks=frozen_metadata.blocks,
+        )
+        restore_agent(frozen_opponent, frozen_checkpoint, restore_optimizer=False)
 
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     recent: deque[EpisodeResult] = deque(maxlen=args.log_every)
@@ -344,7 +383,8 @@ def run(args: argparse.Namespace) -> int:
     print(
         f"training on {args.rows}x{args.columns} via {args.server} "
         f"using {device} (starting episode {state.episode + 1}, "
-        f"random-opponent probability {args.random_opponent_probability:.2f})",
+        f"random-opponent probability {args.random_opponent_probability:.2f}, "
+        f"other opponent={'frozen' if frozen_opponent is not None else 'self-play'})",
         flush=True,
     )
 
@@ -368,6 +408,7 @@ def run(args: argparse.Namespace) -> int:
                         opponent_selection_random,
                         training_opponent_random,
                         random_opponent_episodes,
+                        frozen_opponent_episodes,
                     ),
                 )
 
@@ -432,6 +473,19 @@ def run(args: argparse.Namespace) -> int:
                         on_transition=optimize,
                     )
                     random_opponent_episodes += 1
+                elif frozen_opponent is not None:
+                    learner_player = frozen_opponent_episodes % 2
+                    result = collect_against_agent_episode(
+                        environment,
+                        agent,
+                        frozen_opponent,
+                        replay,
+                        epsilon=epsilon,
+                        learner_player=learner_player,
+                        terminal_win_bonus=args.terminal_win_bonus,
+                        on_transition=optimize,
+                    )
+                    frozen_opponent_episodes += 1
                 else:
                     result = collect_self_play_episode(
                         environment,
@@ -455,6 +509,9 @@ def run(args: argparse.Namespace) -> int:
                     random_results = [
                         item for item in recent if item.opponent == "random"
                     ]
+                    frozen_results = [
+                        item for item in recent if item.opponent == "frozen"
+                    ]
                     mean_loss = (
                         float(np.mean(recent_losses))
                         if recent_losses
@@ -467,8 +524,9 @@ def run(args: argparse.Namespace) -> int:
                     print(
                         f"episode={state.episode} steps={state.environment_steps} "
                         f"epsilon={epsilon:.3f} replay={len(replay)} "
-                        f"opponents=self:{len(self_play_results)}/random:{len(random_results)} "
-                        f"{_score_summary(self_play_results, random_results)} "
+                        f"opponents=self:{len(self_play_results)}/random:{len(random_results)}"
+                        f"/frozen:{len(frozen_results)} "
+                        f"{_score_summary(self_play_results, random_results, frozen_results)} "
                         f"loss={mean_loss:.5f} games/s={games_per_second:.2f}",
                         flush=True,
                     )
@@ -477,7 +535,15 @@ def run(args: argparse.Namespace) -> int:
                 if args.eval_every and state.episode % args.eval_every == 0:
                     early_stop = evaluate_and_track()
 
-                if args.checkpoint_every and state.episode % args.checkpoint_every == 0:
+                checkpoint_episode = (
+                    state.episode - starting_episode
+                    if args.checkpoint_relative_to_start
+                    else state.episode
+                )
+                if (
+                    args.checkpoint_every
+                    and checkpoint_episode % args.checkpoint_every == 0
+                ):
                     save_checkpoint(
                         args.checkpoint_dir / f"dqn-{state.episode:07d}.pt"
                     )
@@ -512,6 +578,7 @@ def _format_stats(stats: MatchStats) -> str:
 def _score_summary(
     self_play_results: list[EpisodeResult],
     random_results: list[EpisodeResult],
+    frozen_results: list[EpisodeResult] | None = None,
 ) -> str:
     parts: list[str] = []
     if self_play_results:
@@ -524,6 +591,13 @@ def _score_summary(
             player = item.learner_player
             differences.append(item.scores[player] - item.scores[1 - player])
         parts.append(f"random_learner_diff={np.mean(differences):+.3f}")
+    if frozen_results:
+        differences = []
+        for item in frozen_results:
+            assert item.learner_player is not None
+            player = item.learner_player
+            differences.append(item.scores[player] - item.scores[1 - player])
+        parts.append(f"frozen_learner_diff={np.mean(differences):+.3f}")
     return " ".join(parts)
 
 

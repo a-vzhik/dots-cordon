@@ -159,6 +159,44 @@ opening is tested with the checkpoint seats swapped. Setting
 `--opening-random-moves 0` plays pure greedy games, but then every game with
 the same seat assignment is identical.
 
+## Run the champion loop
+
+The champion-loop command automates training, screening, direct challenges,
+and promotion:
+
+```sh
+set -o pipefail
+
+uv run dots-cordon-champion-loop \
+  --server 127.0.0.1:50051 \
+  --champion checkpoints/dqn-champion.pt \
+  --run-dir checkpoints/champion-loop \
+  2>&1 | tee logs/champion-loop.log
+```
+
+Each round starts from an immutable copy of the current champion and produces
+four candidates, 250 episodes apart. By default, half of the training games
+use a uniform-random opponent and half use the round's frozen champion; the
+learner alternates seats. Use `--training-opponent self-play` to retain the
+older random/self-play mixture instead.
+
+The champion and all four candidates are screened on three shared, fresh
+1,000-game random-opponent suites. Candidates whose aggregate match score is
+no more than `0.003` below the champion are challenged in screen-rank order.
+Each challenge uses three different 1,000-game paired-opening suites. A
+challenger is promoted when it wins at least two suites and has a combined
+match score of at least `0.52`. If a challenger fails, the next
+screen-qualified candidate is tested. If none qualifies or passes, the
+command stops without changing the champion. Otherwise it starts another
+round from the promoted checkpoint.
+
+`--max-rounds 0`, the default, continues until a round produces no promotion.
+Set a positive limit to cap one invocation. Every round retains
+`champion-before.pt`, all candidate checkpoints, and a machine-readable
+`results.json` under the run directory. Screening and head-to-head seed ranges
+advance between rounds so the loop does not repeatedly select against one
+fixed evaluation suite.
+
 ## Tests
 
 Run unit tests with:

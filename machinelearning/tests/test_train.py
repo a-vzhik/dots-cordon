@@ -98,7 +98,7 @@ def test_training_random_state_round_trips_through_weights_only_checkpoint(
     destination_replay = ReplayBuffer(capacity=10, seed=11)
     destination_selection = np.random.default_rng(12)
     destination_opponent = np.random.default_rng(13)
-    random_opponent_episodes = _restore_rng_state(
+    random_opponent_episodes, frozen_opponent_episodes = _restore_rng_state(
         loaded,
         destination_agent,
         destination_replay,
@@ -107,6 +107,7 @@ def test_training_random_state_round_trips_through_weights_only_checkpoint(
     )
 
     assert random_opponent_episodes == 7
+    assert frozen_opponent_episodes == 0
     assert destination_agent.random.random() == expected_agent_value
     assert destination_selection.random() == expected_selection_value
     assert destination_opponent.random() == expected_opponent_value

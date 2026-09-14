@@ -29,7 +29,7 @@ class Environment(Protocol):
     def step(self, action: int) -> StepResult: ...
 
 
-Opponent = Literal["self-play", "random"]
+Opponent = Literal["self-play", "random", "frozen"]
 
 
 @dataclass(slots=True)
@@ -245,6 +245,76 @@ def collect_against_random_episode(
     )
 
 
+def collect_against_agent_episode(
+    environment: Environment,
+    agent: ActionSelector,
+    opponent: ActionSelector,
+    replay: ReplayBuffer,
+    epsilon: float,
+    learner_player: int,
+    terminal_win_bonus: float = 1.0,
+    on_transition: Callable[[], None] | None = None,
+) -> EpisodeResult:
+    """Train one player against a frozen greedy agent.
+
+    Only the learner's decisions enter replay. The frozen opponent observes the
+    board from its own perspective and never explores or receives updates.
+    """
+    if learner_player not in (0, 1):
+        raise ValueError(f"learner_player must be 0 or 1, got {learner_player}")
+
+    game = environment.reset()
+    pending: _PendingTransition | None = None
+    transition_count = 0
+
+    def add(transition: Transition) -> None:
+        nonlocal transition_count
+        replay.add(transition)
+        transition_count += 1
+        if on_transition is not None:
+            on_transition()
+
+    while not game.terminal:
+        legal_mask = legal_action_mask(game)
+        if game.current_player == learner_player:
+            state = encode_state(game, learner_player)
+            if pending is not None:
+                add(_continuing_transition(pending, state, legal_mask))
+            action = agent.select_action(state, legal_mask, epsilon)
+            step = environment.step(action)
+            pending = _PendingTransition(state, action, step.reward)
+        else:
+            action = opponent.select_action(
+                encode_state(game, game.current_player),
+                legal_mask,
+                epsilon=0.0,
+            )
+            step = environment.step(action)
+            if pending is not None:
+                pending.reward -= step.reward
+        game = step.game
+
+    final_scores = _scores(game)
+    if pending is not None:
+        pending.reward += _win_bonus(final_scores, learner_player, terminal_win_bonus)
+        add(
+            _terminal_transition(
+                pending,
+                game,
+                learner_player,
+                legal_action_mask(game),
+            )
+        )
+
+    return EpisodeResult(
+        moves=int(game.turn),
+        scores=final_scores,
+        transitions=transition_count,
+        opponent="frozen",
+        learner_player=learner_player,
+    )
+
+
 def random_game_seeds(games: int, seed: int) -> tuple[int, ...]:
     """Create reproducible paired seeds for swapped-seat evaluations."""
     if games <= 0:
@@ -353,6 +423,35 @@ def evaluate_head_to_head(
         overall=overall.result(),
         as_player_0=by_player[0].result(),
         as_player_1=by_player[1].result(),
+    )
+
+
+def combine_evaluation_results(
+    results: Sequence[EvaluationResult],
+) -> EvaluationResult:
+    """Combine disjoint evaluation suites without averaging their averages."""
+    if not results:
+        raise ValueError("at least one evaluation result is required")
+
+    def combine(stats: Sequence[MatchStats]) -> MatchStats:
+        games = sum(item.games for item in stats)
+        if not games:
+            raise ValueError("evaluation results must contain games")
+        return MatchStats(
+            games=games,
+            wins=sum(item.wins for item in stats),
+            draws=sum(item.draws for item in stats),
+            losses=sum(item.losses for item in stats),
+            mean_score_difference=sum(
+                item.mean_score_difference * item.games for item in stats
+            )
+            / games,
+        )
+
+    return EvaluationResult(
+        overall=combine([item.overall for item in results]),
+        as_player_0=combine([item.as_player_0 for item in results]),
+        as_player_1=combine([item.as_player_1 for item in results]),
     )
 
 
