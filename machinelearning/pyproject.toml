@@ -8,9 +8,11 @@ version = "0.1.0"
 description = "Server-backed self-play training for Dots Cordon"
 requires-python = ">=3.11"
 dependencies = [
+    "alembic>=1.14,<2",
     "grpcio>=1.70,<2",
     "numpy>=2,<3",
     "protobuf>=7.36,<8",
+    "sqlalchemy>=2.0,<3",
     "torch>=2.6,<3",
 ]
 
@@ -19,6 +21,10 @@ dots-cordon-train = "dots_cordon_ml.train:main"
 dots-cordon-evaluate = "dots_cordon_ml.evaluate:main"
 dots-cordon-head-to-head = "dots_cordon_ml.head_to_head:main"
 dots-cordon-champion-loop = "dots_cordon_ml.champion_loop:main"
+dots-cordon-audit = "dots_cordon_ml.audit.cli:main"
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2,<4"]
 
 [dependency-groups]
 dev = [
@@ -30,3 +36,6 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 include = ["dots_cordon_ml*"]
+
+[tool.setuptools.package-data]
+"dots_cordon_ml.audit" = ["migrations/script.py.mako"]

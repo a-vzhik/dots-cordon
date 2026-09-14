@@ -10,6 +10,17 @@ import time
 import grpc
 import torch
 
+from .audit.integration import (
+    add_audit_arguments,
+    checkpoint_record,
+    close_audit,
+    effective_config,
+    ensure_experiment,
+    evaluation_definition,
+    evaluation_result_dict,
+    open_audit,
+    resolve_checkpoint_reference,
+)
 from .checkpoint import CheckpointMetadata, read_checkpoint, restore_agent
 from .dqn import DQNAgent
 from .environment import GameEnvironment
@@ -42,6 +53,7 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         help="zero lets the server play until the board is full",
     )
     parser.add_argument("--rpc-timeout", type=float, default=10.0)
+    add_audit_arguments(parser)
     args = parser.parse_args(arguments)
     if args.games <= 0 or args.games % 2:
         parser.error("--games must be a positive even number for paired seats")
@@ -90,6 +102,11 @@ def _opponent_stats(stats: MatchStats) -> MatchStats:
         draws=stats.draws,
         losses=stats.wins,
         mean_score_difference=-stats.mean_score_difference,
+        score_difference_sum=(
+            -stats.score_difference_sum
+            if stats.score_difference_sum is not None
+            else None
+        ),
     )
 
 
@@ -118,21 +135,90 @@ def _print_candidate(label: str, result: EvaluationResult) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    checkpoint_a, metadata_a = read_checkpoint(args.candidate_a, map_location="cpu")
-    checkpoint_b, metadata_b = read_checkpoint(args.candidate_b, map_location="cpu")
-    del checkpoint_a, checkpoint_b
-    if metadata_a.board != metadata_b.board:
-        raise ValueError(
-            f"candidate boards differ: {metadata_a.board} and {metadata_b.board}"
+    audit = open_audit(args)
+    batch_id: str | None = None
+    try:
+        path_a = resolve_checkpoint_reference(
+            args.candidate_a, audit, experiment_name=args.experiment
         )
+        path_b = resolve_checkpoint_reference(
+            args.candidate_b, audit, experiment_name=args.experiment
+        )
+        checkpoint_a, metadata_a = read_checkpoint(path_a, map_location="cpu")
+        checkpoint_b, metadata_b = read_checkpoint(path_b, map_location="cpu")
+        del checkpoint_a, checkpoint_b
+        if metadata_a.board != metadata_b.board:
+            raise ValueError(
+                f"candidate boards differ: {metadata_a.board} and {metadata_b.board}"
+            )
 
+        rows, columns = metadata_a.board
+        if args.opening_random_moves >= rows * columns:
+            raise ValueError("--opening-random-moves must be smaller than the board")
+
+        if audit is not None:
+            experiment = ensure_experiment(audit, args, rows, columns)
+            record_a = checkpoint_record(
+                audit, experiment["id"], args.candidate_a, path=path_a
+            )
+            record_b = checkpoint_record(
+                audit, experiment["id"], args.candidate_b, path=path_b
+            )
+            path_a = resolve_checkpoint_reference(f"checkpoint:{record_a['id']}", audit)
+            path_b = resolve_checkpoint_reference(f"checkpoint:{record_b['id']}", audit)
+            checkpoint_a, metadata_a = read_checkpoint(path_a, map_location="cpu")
+            checkpoint_b, metadata_b = read_checkpoint(path_b, map_location="cpu")
+            del checkpoint_a, checkpoint_b
+            definition = evaluation_definition(
+                args,
+                rows=rows,
+                columns=columns,
+                seed=args.seed,
+                games=args.games,
+                kind="head_to_head",
+                opening_random_moves=args.opening_random_moves,
+            )
+            batch = audit.create_evaluation(
+                experiment["id"],
+                record_a["id"],
+                purpose="standalone_head_to_head",
+                suite_definitions=[definition],
+                opponent_checkpoint_id=record_b["id"],
+                config=effective_config(args),
+            )
+            batch_id = batch["id"]
+        result = _run_match(args, path_a, path_b, metadata_a, metadata_b)
+        if audit is not None and batch_id is not None:
+            audit.complete_suite(batch_id, 0, evaluation_result_dict(result))
+            batch_id = None
+        return 0
+    except BaseException as exc:
+        status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+        if audit is not None and batch_id is not None:
+            try:
+                audit.fail_evaluation(
+                    batch_id,
+                    str(exc) or type(exc).__name__,
+                    status=status,
+                )
+            except Exception as recording_error:
+                exc.add_note(f"could not record evaluation failure: {recording_error}")
+        raise
+    finally:
+        close_audit(audit)
+
+
+def _run_match(
+    args: argparse.Namespace,
+    path_a: Path,
+    path_b: Path,
+    metadata_a: CheckpointMetadata,
+    metadata_b: CheckpointMetadata,
+) -> EvaluationResult:
     rows, columns = metadata_a.board
-    if args.opening_random_moves >= rows * columns:
-        raise ValueError("--opening-random-moves must be smaller than the board")
-
     device = _device(args.device)
-    candidate_a = _load_agent(args.candidate_a, metadata_a, device, args.seed)
-    candidate_b = _load_agent(args.candidate_b, metadata_b, device, args.seed + 1)
+    candidate_a = _load_agent(path_a, metadata_a, device, args.seed)
+    candidate_b = _load_agent(path_b, metadata_b, device, args.seed + 1)
     game_seeds = random_game_seeds(args.games, args.seed)
 
     print(
@@ -171,7 +257,7 @@ def run(args: argparse.Namespace) -> int:
     _print_candidate("candidate-a", result_a)
     _print_candidate("candidate-b", result_b)
     print(f"elapsed={elapsed:.1f}s games/s={args.games / elapsed:.2f}", flush=True)
-    return 0
+    return result_a
 
 
 def main() -> None:

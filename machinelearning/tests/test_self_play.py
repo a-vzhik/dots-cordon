@@ -194,11 +194,14 @@ def test_evaluation_reports_reproducible_overall_and_seat_results() -> None:
 
     assert (result.wins, result.draws, result.losses) == (2, 1, 1)
     assert result.mean_score_difference == 1.0
+    assert result.overall.score_difference_sum == 4
     assert result.overall.match_score == 0.625
     assert (result.as_player_0.wins, result.as_player_0.losses) == (1, 1)
     assert result.as_player_0.mean_score_difference == 0.5
+    assert result.as_player_0.score_difference_sum == 1
     assert (result.as_player_1.wins, result.as_player_1.draws) == (1, 1)
     assert result.as_player_1.mean_score_difference == 1.5
+    assert result.as_player_1.score_difference_sum == 3
 
 
 def test_evaluation_results_are_combined_by_game_count() -> None:
@@ -213,6 +216,23 @@ def test_evaluation_results_are_combined_by_game_count() -> None:
     assert (combined.wins, combined.draws, combined.losses) == (3, 1, 2)
     assert combined.overall.match_score == 3.5 / 6
     assert combined.mean_score_difference == 0.0
+    assert combined.overall.score_difference_sum is None
+
+
+def test_combining_evaluations_preserves_exact_integer_score_totals() -> None:
+    # These totals cannot be reconstructed exactly from a double precision mean.
+    total = 2**60 + 1
+    first_stats = MatchStats(3, 3, 0, 0, total / 3, total)
+    second_stats = MatchStats(3, 0, 0, 3, -total / 3, -total + 1)
+    first = EvaluationResult(first_stats, first_stats, first_stats)
+    second = EvaluationResult(second_stats, second_stats, second_stats)
+
+    combined = combine_evaluation_results((first, second))
+
+    assert combined.overall.score_difference_sum == 1
+    assert combined.as_player_0.score_difference_sum == 1
+    assert combined.as_player_1.score_difference_sum == 1
+    assert combined.mean_score_difference == 1 / 6
 
 
 class OneMoveHeadToHeadEnvironment:
@@ -258,6 +278,7 @@ def test_head_to_head_swaps_candidate_seats() -> None:
 
     assert (result.wins, result.draws, result.losses) == (2, 0, 0)
     assert result.mean_score_difference == 2.0
+    assert result.overall.score_difference_sum == 4
     assert result.as_player_0.wins == 1
     assert result.as_player_1.wins == 1
     assert candidate_a.calls == 1

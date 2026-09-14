@@ -55,6 +55,9 @@ class MatchStats:
     draws: int
     losses: int
     mean_score_difference: float
+    # Older callers can still construct summaries from means. Real evaluations
+    # retain the integer total so persistence and combination never round scores.
+    score_difference_sum: int | None = None
 
     @property
     def match_score(self) -> float:
@@ -114,6 +117,7 @@ class _MatchAccumulator:
             draws=self.draws,
             losses=self.losses,
             mean_score_difference=mean,
+            score_difference_sum=self.score_difference_sum,
         )
 
 
@@ -437,15 +441,24 @@ def combine_evaluation_results(
         games = sum(item.games for item in stats)
         if not games:
             raise ValueError("evaluation results must contain games")
+        exact_totals = [
+            item.score_difference_sum
+            for item in stats
+            if item.score_difference_sum is not None
+        ]
+        exact_total = sum(exact_totals) if len(exact_totals) == len(stats) else None
+        total = (
+            exact_total
+            if exact_total is not None
+            else sum(item.mean_score_difference * item.games for item in stats)
+        )
         return MatchStats(
             games=games,
             wins=sum(item.wins for item in stats),
             draws=sum(item.draws for item in stats),
             losses=sum(item.losses for item in stats),
-            mean_score_difference=sum(
-                item.mean_score_difference * item.games for item in stats
-            )
-            / games,
+            mean_score_difference=total / games,
+            score_difference_sum=exact_total,
         )
 
     return EvaluationResult(

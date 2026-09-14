@@ -29,12 +29,14 @@ In another terminal:
 ```sh
 cd machinelearning
 uv sync
+uv run dots-cordon-audit db upgrade
 uv run dots-cordon-train --episodes 10000
 ```
 
 The default setup trains exclusively through self-play on a 7x7 board,
-evaluates both seats against a random opponent every 250 episodes, and writes
-atomic PyTorch checkpoints under `checkpoints/`. Every evaluation uses the
+evaluates both seats against a random opponent every 250 episodes, and records
+training history and full PyTorch checkpoints in the audit database. It also
+writes atomic checkpoint files under `checkpoints/`. Every evaluation uses the
 same paired random seeds with swapped seats, making checkpoint results
 directly comparable. The starting policy is evaluated before training and the
 strongest observed policy is also saved as `dqn-best.pt`; match score is the
@@ -46,6 +48,7 @@ For a fast end-to-end smoke run:
 
 ```sh
 uv run dots-cordon-train \
+  --experiment smoke-4x4 \
   --rows 4 --columns 4 \
   --episodes 3 \
   --channels 8 --blocks 1 \
@@ -72,6 +75,93 @@ hundreds of megabytes; a resumed run therefore refills a fresh replay buffer
 before optimization restarts. New checkpoints also restore the exploration,
 opponent, and replay-sampler random streams. Older checkpoints without random
 state remain compatible and start those streams from the command-line seed.
+
+## Durable training history
+
+Auditing is enabled by default for training, the champion loop, and both
+standalone evaluators. Initialize the schema with `dots-cordon-audit db upgrade`
+before starting them. Training does not require a website or HTTP server.
+
+Each experiment keeps a compatible board/rules configuration and its own
+champion. Use `--experiment NAME` on runners to select one; the default is
+`default`. For example, the 4x4 smoke run above uses a separate experiment from
+normal 7x7 training.
+
+An attempt is an independent training branch. Its checkpoints have explicit
+parent links to the preceding saved state, and the attempt identifies the
+checkpoint from which that branch started. Starting another branch from the
+same champion creates another attempt, even when the episode range is identical.
+The number of command launches does not determine the lineage.
+`--resume` always starts a new attempt from the selected weights; continuing
+an interrupted attempt under its original ID is not implemented yet.
+
+The database stores the exact serialized checkpoint as a BLOB: online and target
+weights, optimizer, training counters, model/board metadata, and saved random
+state. The replay buffer remains excluded. Recorded checkpoints can be restored
+or exported after their original `.pt` files have been removed. Evaluation
+records retain exact per-seat counts, score-difference sums, seeds, and test
+settings; champion-loop decisions retain their thresholds and evidence.
+
+Ctrl-C finishes the current training episode, saves its endpoint, and records
+the attempt as interrupted. A hard kill preserves only previously committed
+checkpoints/results and can leave the attempt's last recorded status as
+running. Automatic recovery or reconciliation after a hard kill is not yet
+implemented; start a new attempt from a recorded checkpoint to continue work.
+
+Use a database reference anywhere a runner accepts a checkpoint:
+
+```sh
+uv run dots-cordon-train \
+  --resume checkpoint:CHECKPOINT_UUID --episodes 20000
+
+uv run dots-cordon-evaluate --games 1000 champion:default
+
+uv run dots-cordon-head-to-head --games 1000 \
+  champion:default checkpoint:CHECKPOINT_UUID
+```
+
+A `checkpoint:` reference identifies immutable saved bytes. A `champion:`
+reference resolves the experiment's current champion when work starts, so a
+later promotion cannot change the opponent in an existing evaluation.
+Existing file paths are still accepted; imported files have unknown prior
+ancestry.
+
+Set `DOTS_CORDON_DATABASE_URL` or pass `--database-url URL` to choose the SQL
+database. The default SQLite file is `machinelearning/audit/training.sqlite3`.
+For example, from `machinelearning/`:
+
+```sh
+export DOTS_CORDON_DATABASE_URL=sqlite:///audit/training.sqlite3
+uv run dots-cordon-audit db upgrade
+```
+
+The administration CLI can inspect schema and experiment status, import an
+existing file, and export exact checkpoint bytes:
+
+```sh
+uv run dots-cordon-audit db status
+uv run dots-cordon-audit status --experiment default
+uv run dots-cordon-audit import \
+  --experiment default --checkpoint checkpoints/dqn-latest.pt
+uv run dots-cordon-audit export CHECKPOINT_UUID exported-model.pt
+```
+
+Pass the administration command's `--database-url` before its subcommand, or
+use the environment variable for all commands. Imports preserve available
+checkpoint metadata without inventing missing parents or training scores.
+When importing or bootstrapping an experiment with a turn limit, pass the same
+`--max-turns` value used by its runners; the default is zero.
+
+Keep SQLite on local disk. Use SQLite's online backup mechanism for a backup
+while training is active; copying only the main file can omit WAL data.
+
+Pass `--no-audit` for the previous file-only behavior. This mode does not update
+the database champion or retain database evidence.
+
+The initial implementation includes database migrations, administration
+commands, and runner integration. The website and HTTP API are still planned.
+
+## Early stopping
 
 For champion continuations, enable patience-based early stopping so training
 does not continue long after a policy peak:
@@ -162,7 +252,15 @@ the same seat assignment is identical.
 ## Run the champion loop
 
 The champion-loop command automates training, screening, direct challenges,
-and promotion:
+and promotion. Import the initial champion into the experiment first:
+
+```sh
+uv run dots-cordon-audit bootstrap \
+  --experiment default --checkpoint checkpoints/dqn-champion.pt
+```
+
+Bootstrap records an initial champion assignment; it does not claim that the
+checkpoint won an evaluation. Then run the loop:
 
 ```sh
 set -o pipefail
@@ -175,9 +273,11 @@ uv run dots-cordon-champion-loop \
   2>&1 | tee logs/champion-loop.log
 ```
 
-Each round starts from an immutable copy of the current champion and produces
-four candidates, 250 episodes apart. By default, half of the training games
-use a uniform-random opponent and half use the round's frozen champion; the
+Each round reads the current champion from the database, retains an immutable
+file copy, and produces four candidates, 250 episodes apart. `--champion` names
+the compatibility file exported after a database promotion. The database
+champion remains authoritative even if that export fails. By default, half of
+the training games use a uniform-random opponent and half use the round's frozen champion; the
 learner alternates seats. Use `--training-opponent self-play` to retain the
 older random/self-play mixture instead.
 
@@ -201,9 +301,13 @@ server with `--max-games` at least as large as the worker count.
 `--max-rounds 0`, the default, continues until a round produces no promotion.
 Set a positive limit to cap one invocation. Every round retains
 `champion-before.pt`, all candidate checkpoints, and a machine-readable
-`results.json` under the run directory. Screening and head-to-head seed ranges
-advance between rounds so the loop does not repeatedly select against one
-fixed evaluation suite.
+`results.json` under the run directory. Checkpoints and completed evaluation
+suites are also recorded incrementally in the database, so an interrupted round
+retains its completed evidence even without a final `results.json`.
+Screening and head-to-head seed ranges advance in the experiment database
+across rounds and command launches. Incomplete evaluations cannot promote a
+candidate. A checkpoint trained after the eventual winner remains on its
+original attempt's branch.
 
 Pass `--fresh-training-rng` when starting another branch from an unchanged
 champion. It keeps the checkpoint's weights, optimizer, episode count, and
@@ -212,8 +316,8 @@ opponent selection/actions, and seat alternation from a new seed. By default,
 the loop uses the current Unix timestamp in seconds, prints it, and saves
 it in the round's `results.json`; pass `--training-seed NUMBER` only when you
 want a reproducible value. Without `--fresh-training-rng`, resuming restores
-the random streams from the checkpoint for exact continuation. The loop
-increments the resolved training seed between rounds in one invocation.
+the random streams from the checkpoint; the replay buffer still refills. The
+loop increments the resolved training seed between rounds in one invocation.
 
 ## Tests
 
@@ -228,6 +332,27 @@ To include the real-server lifecycle test, start the server and run:
 ```sh
 DOTS_CORDON_TEST_SERVER=127.0.0.1:50051 uv run pytest
 ```
+
+## Audit implementation
+
+`dots_cordon_ml/audit/service.py` exposes `AuditService`, the application entry
+point shared by runners and a future HTTP API. It validates checkpoint lineage,
+evaluation evidence, and champion promotion. Runners pass ordinary Python
+values and do not access SQL directly.
+
+`audit/repository.py` owns SQL queries and checkpoint BLOB access.
+`audit/database.py` owns SQLAlchemy engine configuration, transaction boundaries,
+and the Alembic lifecycle. Migrations live in `audit/migrations/versions/`.
+Changing `audit/schema.py` requires a new migration containing the explicit
+schema change; released migration definitions stay frozen so an old database
+can upgrade reliably. Run `dots-cordon-audit db upgrade` explicitly before
+starting a runner against the changed schema.
+
+SQLite integration is tested. An optional PostgreSQL driver is available with
+`uv sync --extra postgres`; configure a `postgresql+psycopg://...` database URL
+to use it. PostgreSQL integration has not yet been verified, and changing the
+URL does not copy data from an existing SQLite database. Automatic transfer
+between database engines is not implemented.
 
 ## Input representation
 

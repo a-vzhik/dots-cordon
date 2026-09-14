@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -15,6 +16,17 @@ import grpc
 import numpy as np
 import torch
 
+from .audit.integration import (
+    add_audit_arguments,
+    checkpoint_record,
+    close_audit,
+    effective_config,
+    ensure_experiment,
+    evaluation_definition,
+    evaluation_result_dict,
+    open_audit,
+    resolve_checkpoint_reference,
+)
 from .checkpoint import read_checkpoint, restore_agent
 from .dqn import DQNAgent, ReplayBuffer
 from .environment import GameEnvironment
@@ -82,13 +94,13 @@ class EvaluationMonitor:
     @property
     def should_stop(self) -> bool:
         return (
-            self.patience > 0
-            and self.evaluations_without_improvement >= self.patience
+            self.patience > 0 and self.evaluations_without_improvement >= self.patience
         )
 
 
 def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    add_audit_arguments(parser)
     parser.add_argument("--server", default="127.0.0.1:50051")
     parser.add_argument("--rows", type=int, default=7)
     parser.add_argument("--columns", type=int, default=7)
@@ -307,9 +319,7 @@ def _restore_rng_state(
     try:
         agent.random.bit_generator.state = rng_state["agent"]
         replay.restore_random_state(rng_state["replay"])
-        opponent_selection_random.bit_generator.state = rng_state[
-            "opponent_selection"
-        ]
+        opponent_selection_random.bit_generator.state = rng_state["opponent_selection"]
         training_opponent_random.bit_generator.state = rng_state["training_opponent"]
         return (
             int(rng_state["random_opponent_episodes"]),
@@ -319,7 +329,106 @@ def _restore_rng_state(
         raise ValueError("checkpoint contains invalid random state") from exc
 
 
-def run(args: argparse.Namespace) -> int:
+def run(
+    args: argparse.Namespace, *, audit_service=None, audit_attempt_id: str | None = None
+) -> int:
+    """Record one training branch; a champion round can supply its existing attempt."""
+    args = copy.copy(args)
+    service = audit_service if audit_service is not None else open_audit(args)
+    owns_service = audit_service is None
+    attempt_id = audit_attempt_id
+    try:
+        if service is not None:
+            experiment = ensure_experiment(service, args, args.rows, args.columns)
+            original_resume = args.resume
+            if args.resume is not None:
+                args.resume = resolve_checkpoint_reference(
+                    args.resume, service, experiment_name=args.experiment
+                )
+                starting = checkpoint_record(
+                    service, experiment["id"], original_resume, path=args.resume
+                )
+                args.resume = resolve_checkpoint_reference(
+                    f"checkpoint:{starting['id']}", service
+                )
+            else:
+                starting = None
+            config = effective_config(args)
+            config["resume"] = (
+                str(original_resume) if original_resume is not None else None
+            )
+            if args.frozen_opponent is not None:
+                original_opponent = args.frozen_opponent
+                args.frozen_opponent = resolve_checkpoint_reference(
+                    original_opponent, service, experiment_name=args.experiment
+                )
+                opponent = checkpoint_record(
+                    service,
+                    experiment["id"],
+                    original_opponent,
+                    path=args.frozen_opponent,
+                )
+                config["frozen_opponent_checkpoint_id"] = opponent["id"]
+                args.frozen_opponent = resolve_checkpoint_reference(
+                    f"checkpoint:{opponent['id']}", service
+                )
+            if attempt_id is None:
+                champion = service.current_champion(experiment["id"])
+                attempt = service.create_attempt(
+                    experiment["id"],
+                    starting_checkpoint_id=starting["id"] if starting else None,
+                    champion_at_start_assignment_id=champion["id"]
+                    if champion
+                    else None,
+                    config=config,
+                    target_episode=args.episodes,
+                )
+                attempt_id = attempt["id"]
+            else:
+                attempt = service.get_attempt(attempt_id)
+                if attempt["experiment_id"] != experiment["id"] or attempt[
+                    "starting_checkpoint_id"
+                ] != (starting["id"] if starting else None):
+                    raise ValueError(
+                        "training inputs do not match the supplied audit attempt"
+                    )
+                service.update_attempt(
+                    attempt_id, config={**attempt["config"], "training": config}
+                )
+            print(
+                f"audit experiment={experiment['id']} attempt={attempt_id}", flush=True
+            )
+        result = _run_training(args, service, attempt_id)
+        if service is not None and (audit_attempt_id is None or result):
+            service.update_attempt(
+                attempt_id,
+                status="interrupted" if result == 130 else "completed",
+                phase="finished",
+                outcome=None if result else "trained_only",
+                **({"error": "training interrupted"} if result else {}),
+            )
+        return result
+    except BaseException as exc:
+        if service is not None and attempt_id is not None:
+            try:
+                service.update_attempt(
+                    attempt_id,
+                    status="interrupted"
+                    if isinstance(exc, KeyboardInterrupt)
+                    else "failed",
+                    error=str(exc) or type(exc).__name__,
+                )
+            except Exception as audit_error:
+                print(
+                    f"could not record training failure: {audit_error}", file=sys.stderr
+                )
+        raise
+    finally:
+        if owns_service:
+            close_audit(service)
+
+
+def _run_training(args: argparse.Namespace, service, attempt_id: str | None) -> int:
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     device = _device(args.device)
@@ -347,6 +456,25 @@ def run(args: argparse.Namespace) -> int:
                 opponent_selection_random,
                 training_opponent_random,
             )
+    if state.episode > args.episodes:
+        raise ValueError("--episodes must not precede the resumed checkpoint episode")
+    if service is not None:
+        recorded = service.get_attempt(attempt_id)["config"]
+        service.update_attempt(
+            attempt_id,
+            config={
+                **recorded,
+                "effective_device": str(device),
+                "effective_optimizer": [
+                    {key: value for key, value in group.items() if key != "params"}
+                    for group in agent.optimizer.param_groups
+                ],
+                "rng_source": _rng_source(
+                    args, rng_state if args.resume is not None else None
+                ),
+                "replay_restored": False,
+            },
+        )
     starting_episode = state.episode
     frozen_opponent: DQNAgent | None = None
     if args.frozen_opponent is not None:
@@ -398,16 +526,31 @@ def run(args: argparse.Namespace) -> int:
     )
 
     try:
-        with GameEnvironment(
-            target=args.server,
-            rows=args.rows,
-            columns=args.columns,
-            max_turns=args.max_turns,
-            rpc_timeout=args.rpc_timeout,
-        ) as environment:
-            def save_checkpoint(path: Path) -> None:
+        last_saved_state = None
+        last_saved_path = None
+        last_checkpoint_id = None
+        if service is not None:
+            previous = service.list_checkpoints(attempt_id)
+            attempt = service.get_attempt(attempt_id)
+            last_checkpoint_id = (
+                previous[-1]["id"] if previous else attempt["starting_checkpoint_id"]
+            )
+
+        def save_checkpoint(path: Path, **flags):
+            nonlocal last_saved_state, last_saved_path, last_checkpoint_id
+            if flags.get("is_periodic_save") and getattr(
+                args, "_screening_candidates", False
+            ):
+                flags.update(
+                    is_screening_candidate=True,
+                    candidate_index=(state.episode - starting_episode)
+                    // args.checkpoint_every,
+                )
+            # All saves at one episode boundary share exact serialized bytes.
+            if last_saved_state != state:
+                staging = args.checkpoint_dir / ".audit-checkpoint.pt"
                 _save_checkpoint(
-                    path,
+                    staging,
                     agent,
                     state,
                     args,
@@ -420,11 +563,86 @@ def run(args: argparse.Namespace) -> int:
                         frozen_opponent_episodes,
                     ),
                 )
+                last_saved_path = staging
+                last_saved_state = state
+                if service is not None:
+                    record = service.import_checkpoint(
+                        attempt["experiment_id"],
+                        staging,
+                        attempt_id=attempt_id,
+                        parent_checkpoint_id=last_checkpoint_id,
+                        **flags,
+                    )
+                    last_checkpoint_id = record["id"]
+                    print(
+                        f"audit checkpoint={record['id']} episode={state.episode}",
+                        flush=True,
+                    )
+            elif service is not None:
+                service.import_checkpoint(
+                    attempt["experiment_id"],
+                    last_saved_path,
+                    attempt_id=attempt_id,
+                    checkpoint_id=last_checkpoint_id,
+                    **flags,
+                )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(path.suffix + ".tmp")
+            import shutil
+
+            shutil.copyfile(last_saved_path, temporary)
+            temporary.replace(path)
+            return last_checkpoint_id
+
+        if service is not None:
+            save_checkpoint(args.checkpoint_dir / f"dqn-{state.episode:07d}.pt")
+        with GameEnvironment(
+            target=args.server,
+            rows=args.rows,
+            columns=args.columns,
+            max_turns=args.max_turns,
+            rpc_timeout=args.rpc_timeout,
+        ) as environment:
 
             def evaluate_and_track() -> bool:
-                evaluation = evaluate_against_random(
-                    environment, agent, evaluation_seeds
-                )
+                batch = None
+                if service is not None:
+                    checkpoint_id = save_checkpoint(
+                        args.checkpoint_dir / f"dqn-{state.episode:07d}.pt"
+                    )
+                    batch = service.create_evaluation(
+                        attempt["experiment_id"],
+                        checkpoint_id,
+                        purpose="training",
+                        attempt_id=attempt_id,
+                        suite_definitions=[
+                            evaluation_definition(
+                                args,
+                                rows=args.rows,
+                                columns=args.columns,
+                                seed=args.evaluation_seed,
+                                games=args.eval_games,
+                            )
+                        ],
+                    )
+                try:
+                    evaluation = evaluate_against_random(
+                        environment, agent, evaluation_seeds
+                    )
+                    if batch is not None:
+                        service.complete_suite(
+                            batch["id"], 0, evaluation_result_dict(evaluation)
+                        )
+                except BaseException as exc:
+                    if batch is not None:
+                        service.fail_evaluation(
+                            batch["id"],
+                            str(exc) or type(exc).__name__,
+                            status="interrupted"
+                            if isinstance(exc, KeyboardInterrupt)
+                            else "failed",
+                        )
+                    raise
                 print(
                     f"evaluation episode={state.episode} "
                     f"W/D/L={evaluation.wins}/{evaluation.draws}/{evaluation.losses} "
@@ -436,7 +654,7 @@ def run(args: argparse.Namespace) -> int:
                 )
                 if monitor.observe(state.episode, evaluation):
                     best_path = args.checkpoint_dir / "dqn-best.pt"
-                    save_checkpoint(best_path)
+                    save_checkpoint(best_path, is_best_in_attempt=True)
                     print(
                         f"new best episode={state.episode} "
                         f"match_score={evaluation.overall.match_score:.4f} "
@@ -522,14 +740,40 @@ def run(args: argparse.Namespace) -> int:
                         item for item in recent if item.opponent == "frozen"
                     ]
                     mean_loss = (
-                        float(np.mean(recent_losses))
-                        if recent_losses
-                        else float("nan")
+                        float(np.mean(recent_losses)) if recent_losses else float("nan")
                     )
                     completed_this_run = state.episode - starting_episode
                     games_per_second = completed_this_run / max(
                         time.monotonic() - started_at, 1e-9
                     )
+                    if service is not None:
+                        service.record_metrics(
+                            attempt_id,
+                            state.episode,
+                            {
+                                "episode_start": state.episode - len(recent) + 1,
+                                "elapsed_seconds": time.monotonic() - started_at,
+                                "epsilon": epsilon,
+                                "loss": mean_loss if np.isfinite(mean_loss) else None,
+                                "games_per_second": games_per_second,
+                                "replay_size": len(replay),
+                                "environment_steps": state.environment_steps,
+                                "optimization_steps": state.optimization_steps,
+                                "opponents": {
+                                    "self_play": len(self_play_results),
+                                    "random": len(random_results),
+                                    "frozen": len(frozen_results),
+                                },
+                                "episodes": [
+                                    {
+                                        "scores": list(item.scores),
+                                        "opponent": item.opponent,
+                                        "learner_player": item.learner_player,
+                                    }
+                                    for item in recent
+                                ],
+                            },
+                        )
                     print(
                         f"episode={state.episode} steps={state.environment_steps} "
                         f"epsilon={epsilon:.3f} replay={len(replay)} "
@@ -554,10 +798,13 @@ def run(args: argparse.Namespace) -> int:
                     and checkpoint_episode % args.checkpoint_every == 0
                 ):
                     save_checkpoint(
-                        args.checkpoint_dir / f"dqn-{state.episode:07d}.pt"
+                        args.checkpoint_dir / f"dqn-{state.episode:07d}.pt",
+                        is_periodic_save=True,
                     )
 
                 if early_stop:
+                    if service is not None:
+                        service.update_attempt(attempt_id, stop_reason="early_stopping")
                     print(
                         f"early stopping episode={state.episode}: no match-score "
                         f"improvement of at least {monitor.min_delta:.4f} for "
@@ -569,18 +816,19 @@ def run(args: argparse.Namespace) -> int:
                     break
 
             final_path = args.checkpoint_dir / "dqn-latest.pt"
-            save_checkpoint(final_path)
+            save_checkpoint(final_path, is_final_in_attempt=True)
+            if service is not None:
+                service.update_attempt(attempt_id, latest_episode=state.episode)
             print(f"saved {final_path}", flush=True)
     finally:
         signal.signal(signal.SIGINT, previous_sigint)
 
-    return 0
+    return 130 if stop_requested else 0
 
 
 def _format_stats(stats: MatchStats) -> str:
     return (
-        f"{stats.wins}/{stats.draws}/{stats.losses}"
-        f"({stats.mean_score_difference:+.3f})"
+        f"{stats.wins}/{stats.draws}/{stats.losses}({stats.mean_score_difference:+.3f})"
     )
 
 

@@ -3,8 +3,14 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
-from dataclasses import dataclass
+import copy
+from concurrent.futures import (
+    Executor,
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    as_completed,
+)
+from dataclasses import dataclass, replace
 import json
 import multiprocessing
 import os
@@ -18,6 +24,16 @@ import grpc
 import torch
 
 from . import train
+from .audit.integration import (
+    add_audit_arguments,
+    close_audit,
+    effective_config,
+    ensure_experiment,
+    evaluation_definition,
+    evaluation_result_dict,
+    open_audit,
+    resolve_checkpoint_reference,
+)
 from .checkpoint import CheckpointMetadata, read_checkpoint, restore_agent
 from .dqn import DQNAgent
 from .environment import GameEnvironment
@@ -41,6 +57,7 @@ class EvaluatedCheckpoint:
 
 def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    add_audit_arguments(parser)
     parser.add_argument("--server", default="127.0.0.1:50051")
     parser.add_argument(
         "--champion",
@@ -65,18 +82,13 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         "--evaluation-workers",
         type=int,
         default=5,
-        help=(
-            "maximum parallel random-screen checkpoints or head-to-head suites"
-        ),
+        help=("maximum parallel random-screen checkpoints or head-to-head suites"),
     )
     parser.add_argument(
         "--training-seed",
         type=int,
         default=None,
-        help=(
-            "training RNG seed; defaults to the current Unix timestamp in "
-            "seconds"
-        ),
+        help=("training RNG seed; defaults to the current Unix timestamp in seconds"),
     )
     parser.add_argument(
         "--fresh-training-rng",
@@ -166,8 +178,7 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("--promotion-min-match-score must be greater than 0.5")
     if not 1 <= args.promotion_min_suite_wins <= args.head_to_head_suites:
         parser.error(
-            "--promotion-min-suite-wins must be between one and "
-            "--head-to-head-suites"
+            "--promotion-min-suite-wins must be between one and --head-to-head-suites"
         )
 
 
@@ -260,6 +271,10 @@ def _run_training_round(
     metadata: CheckpointMetadata,
     round_dir: Path,
     training_seed: int,
+    *,
+    audit_service=None,
+    audit_attempt_id: str | None = None,
+    champion_checkpoint_id: str | None = None,
 ) -> tuple[Path, ...]:
     checkpoint_dir = round_dir / "candidates"
     final_episode = metadata.episode + args.candidate_count * args.candidate_interval
@@ -303,7 +318,27 @@ def _run_training_round(
     if args.fresh_training_rng:
         arguments.append("--reset-rng-on-resume")
 
-    exit_code = train.run(train.parse_args(arguments))
+    arguments.extend(("--experiment", args.experiment))
+    if audit_service is None:
+        arguments.append("--no-audit")
+    else:
+        arguments.extend(("--resume", f"checkpoint:{champion_checkpoint_id}"))
+        if args.training_opponent == "frozen":
+            arguments.extend(
+                ("--frozen-opponent", f"checkpoint:{champion_checkpoint_id}")
+            )
+    training_args = train.parse_args(arguments)
+    training_args._screening_candidates = audit_service is not None
+    if audit_service is None:
+        exit_code = train.run(training_args)
+    else:
+        exit_code = train.run(
+            training_args,
+            audit_service=audit_service,
+            audit_attempt_id=audit_attempt_id,
+        )
+    if exit_code == 130:
+        raise KeyboardInterrupt("training interrupted")
     if exit_code:
         raise RuntimeError(f"training exited with status {exit_code}")
 
@@ -359,7 +394,64 @@ def _evaluate_random_screen(
     device: torch.device,
     suite_seeds: tuple[int, ...],
     games: int,
+    *,
+    audit_service=None,
+    evaluation_ids: tuple[str, ...] = (),
 ) -> tuple[EvaluatedCheckpoint, ...]:
+    if audit_service is not None:
+        # Only the parent writes SQL; worker processes receive plain inputs.
+        results = [[None] * len(suite_seeds) for _ in paths]
+        try:
+            snapshots = [
+                resolve_checkpoint_reference(
+                    f"checkpoint:{audit_service.get_evaluation(batch_id)['checkpoint_id']}",
+                    audit_service,
+                )
+                for batch_id in evaluation_ids
+            ]
+            with _evaluation_executor(
+                device, min(args.evaluation_workers, len(paths) * len(suite_seeds))
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        _evaluate_against_random_suites,
+                        args,
+                        path,
+                        device,
+                        (seed,),
+                        games,
+                    ): (path_index, suite_index)
+                    for path_index, path in enumerate(snapshots)
+                    for suite_index, seed in enumerate(suite_seeds)
+                }
+                failure = None
+                for future in as_completed(futures):
+                    path_index, suite_index = futures[future]
+                    try:
+                        evaluated = future.result()
+                    except Exception as exc:
+                        failure = failure or exc
+                        continue
+                    audit_service.complete_suite(
+                        evaluation_ids[path_index],
+                        suite_index,
+                        evaluation_result_dict(evaluated.suites[0]),
+                    )
+                    results[path_index][suite_index] = evaluated
+                if failure is not None:
+                    raise failure
+        except BaseException as exc:
+            _fail_evaluations(audit_service, evaluation_ids, exc)
+            raise
+        return tuple(
+            EvaluatedCheckpoint(
+                path,
+                items[0].metadata,
+                tuple(item.suites[0] for item in items),
+                combine_evaluation_results([item.suites[0] for item in items]),
+            )
+            for path, items in zip(paths, results, strict=True)
+        )
     worker_count = min(args.evaluation_workers, len(paths))
     print(
         f"random-screen checkpoints={len(paths)} parallel-workers={worker_count}",
@@ -386,8 +478,7 @@ def _passes_random_screen(
     maximum_regression: float,
 ) -> bool:
     score_delta = (
-        candidate.aggregate.overall.match_score
-        - champion.aggregate.overall.match_score
+        candidate.aggregate.overall.match_score - champion.aggregate.overall.match_score
     )
     return score_delta + maximum_regression >= -1e-12
 
@@ -407,6 +498,9 @@ def _evaluate_head_to_head_suites(
     suite_seeds: tuple[int, ...],
     games: int,
     opening_random_moves: int,
+    *,
+    audit_service=None,
+    evaluation_id: str | None = None,
 ) -> tuple[EvaluationResult, ...]:
     worker_count = min(args.evaluation_workers, len(suite_seeds))
     print(
@@ -415,27 +509,74 @@ def _evaluate_head_to_head_suites(
         f"parallel-workers={worker_count}",
         flush=True,
     )
-    with _evaluation_executor(device, worker_count) as executor:
-        futures = tuple(
-            executor.submit(
-                _evaluate_head_to_head_suite,
-                args,
+    completed = [None] * len(suite_seeds)
+    try:
+        if audit_service is not None:
+            batch = audit_service.get_evaluation(evaluation_id)
+            candidate = replace(
                 candidate,
-                champion,
-                device,
-                suite_seed,
-                games,
-                opening_random_moves,
+                path=resolve_checkpoint_reference(
+                    f"checkpoint:{batch['checkpoint_id']}", audit_service
+                ),
             )
-            for suite_seed in suite_seeds
-        )
-        results = tuple(future.result() for future in futures)
+            champion = replace(
+                champion,
+                path=resolve_checkpoint_reference(
+                    f"checkpoint:{batch['opponent_checkpoint_id']}", audit_service
+                ),
+            )
+        with _evaluation_executor(device, worker_count) as executor:
+            futures = {
+                executor.submit(
+                    _evaluate_head_to_head_suite,
+                    args,
+                    candidate,
+                    champion,
+                    device,
+                    suite_seed,
+                    games,
+                    opening_random_moves,
+                ): index
+                for index, suite_seed in enumerate(suite_seeds)
+            }
+            failure = None
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    failure = failure or exc
+                    continue
+                if audit_service is not None:
+                    audit_service.complete_suite(
+                        evaluation_id, index, evaluation_result_dict(result)
+                    )
+                completed[index] = result
+            if failure is not None:
+                raise failure
+        results = tuple(completed)
+    except BaseException as exc:
+        if audit_service is not None:
+            _fail_evaluations(audit_service, (evaluation_id,), exc)
+        raise
 
     for suite_seed, result in zip(suite_seeds, results, strict=True):
         print(f"  seed={suite_seed} {_format_stats(result.overall)}", flush=True)
     aggregate = combine_evaluation_results(results)
     print(f"  aggregate {_format_stats(aggregate.overall)}", flush=True)
     return results
+
+
+def _fail_evaluations(service, evaluation_ids, error: BaseException) -> None:
+    for evaluation_id in evaluation_ids:
+        if service.get_evaluation(evaluation_id)["status"] == "running":
+            service.fail_evaluation(
+                evaluation_id,
+                str(error) or type(error).__name__,
+                status="interrupted"
+                if isinstance(error, KeyboardInterrupt)
+                else "failed",
+            )
 
 
 def _evaluate_head_to_head_suite(
@@ -519,7 +660,62 @@ def _write_summary(path: Path, summary: dict[str, object]) -> None:
 
 
 def run(args: argparse.Namespace) -> int:
-    if not args.champion.is_file():
+    args = copy.copy(args)
+    args._audit_attempt_id = None
+    service = open_audit(args)
+    try:
+        return _run_loop(args, service)
+    except BaseException as exc:
+        if service is not None and args._audit_attempt_id is not None:
+            try:
+                attempt = service.get_attempt(args._audit_attempt_id)
+                # A failed compatibility export must not undo a committed promotion.
+                if attempt["status"] != "completed":
+                    service.update_attempt(
+                        attempt["id"],
+                        status="interrupted"
+                        if isinstance(exc, KeyboardInterrupt)
+                        else "failed",
+                        error=str(exc) or type(exc).__name__,
+                    )
+            except Exception as audit_error:
+                print(
+                    f"could not record champion-loop failure: {audit_error}",
+                    file=sys.stderr,
+                )
+        raise
+    finally:
+        close_audit(service)
+
+
+def _run_loop(args: argparse.Namespace, service) -> int:
+    experiment = None
+    if service is not None:
+        experiment = next(
+            (
+                item
+                for item in service.list_experiments()
+                if item["name"] == args.experiment
+            ),
+            None,
+        )
+        assignment = service.current_champion(experiment["id"]) if experiment else None
+        if assignment is None:
+            _, metadata = read_checkpoint(args.champion, map_location="cpu")
+            experiment = ensure_experiment(
+                service, args, metadata.rows, metadata.columns
+            )
+            checkpoint = service.import_checkpoint(experiment["id"], args.champion)
+            assignment = service.bootstrap(experiment["id"], checkpoint["id"])
+            print(
+                f"audit bootstrapped champion={checkpoint['id']} from {args.champion}",
+                flush=True,
+            )
+        checkpoint = service.get_checkpoint(assignment["checkpoint_id"])
+        ensure_experiment(
+            service, args, checkpoint["board"]["rows"], checkpoint["board"]["columns"]
+        )
+    elif not args.champion.is_file():
         raise FileNotFoundError(f"champion checkpoint not found: {args.champion}")
     args.run_dir.mkdir(parents=True, exist_ok=True)
     device = _device(args.device)
@@ -531,11 +727,22 @@ def run(args: argparse.Namespace) -> int:
     rounds_completed = 0
 
     while args.max_rounds == 0 or rounds_completed < args.max_rounds:
+        champion_source = args.champion
+        if service is not None:
+            assignment = service.current_champion(experiment["id"])
+            # This file is a compatibility export; the assignment in SQL is authoritative.
+            service.export_checkpoint(assignment["checkpoint_id"], args.champion)
+            champion_source = resolve_checkpoint_reference(
+                f"checkpoint:{assignment['checkpoint_id']}", service
+            )
         checkpoint, champion_metadata = read_checkpoint(
-            args.champion, map_location="cpu"
+            champion_source, map_location="cpu"
         )
         del checkpoint
-        if args.opening_random_moves >= champion_metadata.rows * champion_metadata.columns:
+        if (
+            args.opening_random_moves
+            >= champion_metadata.rows * champion_metadata.columns
+        ):
             raise ValueError("--opening-random-moves must be smaller than the board")
 
         round_dir = (
@@ -544,8 +751,28 @@ def run(args: argparse.Namespace) -> int:
         )
         round_dir.mkdir(parents=True, exist_ok=False)
         round_champion = round_dir / "champion-before.pt"
-        _atomic_copy(args.champion, round_champion)
+        _atomic_copy(champion_source, round_champion)
         training_seed = initial_training_seed + rounds_completed
+        audit_kwargs = {}
+        if service is not None:
+            attempt = service.create_attempt(
+                experiment["id"],
+                starting_checkpoint_id=assignment["checkpoint_id"],
+                champion_at_start_assignment_id=assignment["id"],
+                config={**effective_config(args), "training_seed": training_seed},
+                target_episode=champion_metadata.episode
+                + args.candidate_count * args.candidate_interval,
+            )
+            args._audit_attempt_id = attempt["id"]
+            audit_kwargs = dict(
+                audit_service=service,
+                audit_attempt_id=attempt["id"],
+                champion_checkpoint_id=assignment["checkpoint_id"],
+            )
+            print(
+                f"audit experiment={experiment['id']} attempt={attempt['id']}",
+                flush=True,
+            )
         print(
             f"\nround={round_number} champion={args.champion} "
             f"episode={champion_metadata.episode} training-seed={training_seed} "
@@ -559,13 +786,42 @@ def run(args: argparse.Namespace) -> int:
             champion_metadata,
             round_dir,
             training_seed,
+            **audit_kwargs,
         )
-        screen_seeds = _round_seeds(
-            args.screen_seed, round_number, args.screen_suites
-        )
-        head_to_head_seeds = _round_seeds(
-            args.head_to_head_seed, round_number, args.head_to_head_suites
-        )
+        if service is not None:
+            candidate_records = {}
+            saved = {
+                item["episode"]: item
+                for item in service.list_checkpoints(attempt["id"])
+            }
+            for index, path in enumerate(candidates, start=1):
+                episode = champion_metadata.episode + index * args.candidate_interval
+                record = saved[episode]
+                candidate_records[path] = service.import_checkpoint(
+                    experiment["id"],
+                    path,
+                    attempt_id=attempt["id"],
+                    checkpoint_id=record["id"],
+                    is_screening_candidate=True,
+                    candidate_index=index,
+                )
+            service.update_attempt(attempt["id"], phase="screening")
+            screen_seeds = service.reserve_suite_seeds(
+                experiment["id"], "screening", args.screen_suites, args.screen_seed
+            )
+            head_to_head_seeds = service.reserve_suite_seeds(
+                experiment["id"],
+                "head_to_head",
+                args.head_to_head_suites,
+                args.head_to_head_seed,
+            )
+        else:
+            screen_seeds = _round_seeds(
+                args.screen_seed, round_number, args.screen_suites
+            )
+            head_to_head_seeds = _round_seeds(
+                args.head_to_head_seed, round_number, args.head_to_head_suites
+            )
         summary: dict[str, object] = {
             "round": round_number,
             "champion_before": str(round_champion),
@@ -586,12 +842,47 @@ def run(args: argparse.Namespace) -> int:
             "promotion_min_suite_wins": args.promotion_min_suite_wins,
         }
 
+        screen_kwargs = {}
+        if service is not None:
+            definitions = [
+                evaluation_definition(
+                    args,
+                    rows=champion_metadata.rows,
+                    columns=champion_metadata.columns,
+                    seed=seed,
+                    games=args.screen_games,
+                )
+                for seed in screen_seeds
+            ]
+            screen_batches = {}
+            for path, checkpoint_id in [
+                (round_champion, assignment["checkpoint_id"]),
+                *[(path, candidate_records[path]["id"]) for path in candidates],
+            ]:
+                screen_batches[path] = service.create_evaluation(
+                    experiment["id"],
+                    checkpoint_id,
+                    purpose="screening",
+                    attempt_id=attempt["id"],
+                    suite_definitions=definitions,
+                    config={"screen_max_regression": args.screen_max_regression},
+                )
+            screen_kwargs = dict(
+                audit_service=service,
+                evaluation_ids=tuple(item["id"] for item in screen_batches.values()),
+            )
+            summary.update(
+                experiment_id=experiment["id"],
+                attempt_id=attempt["id"],
+                champion_assignment_id=assignment["id"],
+            )
         screened = _evaluate_random_screen(
             args,
             (round_champion, *candidates),
             device,
             screen_seeds,
             args.screen_games,
+            **screen_kwargs,
         )
         champion_result = screened[0]
         candidate_results = screened[1:]
@@ -611,6 +902,24 @@ def run(args: argparse.Namespace) -> int:
             key=_screen_rank,
             reverse=True,
         )
+        if service is not None:
+            ranks = {item.path: index for index, item in enumerate(contenders, start=1)}
+            for candidate in candidate_results:
+                qualified = candidate.path in ranks
+                service.record_decision(
+                    attempt["id"],
+                    candidate_records[candidate.path]["id"],
+                    stage="screening",
+                    result="qualified" if qualified else "rejected",
+                    reason="within allowed random-score regression"
+                    if qualified
+                    else "random-score regression exceeds threshold",
+                    candidate_evaluation_id=screen_batches[candidate.path]["id"],
+                    champion_evaluation_id=screen_batches[round_champion]["id"],
+                    policy={"screen_max_regression": args.screen_max_regression},
+                    rank=ranks.get(candidate.path),
+                )
+            service.update_attempt(attempt["id"], phase="challenging")
         print(
             "random-screen contenders="
             + (
@@ -624,6 +933,35 @@ def run(args: argparse.Namespace) -> int:
         challenges: list[dict[str, object]] = []
         promoted: EvaluatedCheckpoint | None = None
         for contender in contenders:
+            challenge_kwargs = {}
+            promotion_policy = {
+                "promotion_min_match_score": args.promotion_min_match_score,
+                "promotion_min_suite_wins": args.promotion_min_suite_wins,
+            }
+            if service is not None:
+                challenge_batch = service.create_evaluation(
+                    experiment["id"],
+                    candidate_records[contender.path]["id"],
+                    purpose="head_to_head",
+                    attempt_id=attempt["id"],
+                    opponent_checkpoint_id=assignment["checkpoint_id"],
+                    suite_definitions=[
+                        evaluation_definition(
+                            args,
+                            rows=champion_metadata.rows,
+                            columns=champion_metadata.columns,
+                            seed=seed,
+                            games=args.head_to_head_games,
+                            kind="head_to_head",
+                            opening_random_moves=args.opening_random_moves,
+                        )
+                        for seed in head_to_head_seeds
+                    ],
+                    config=promotion_policy,
+                )
+                challenge_kwargs = dict(
+                    audit_service=service, evaluation_id=challenge_batch["id"]
+                )
             suites = _evaluate_head_to_head_suites(
                 args,
                 contender,
@@ -632,6 +970,7 @@ def run(args: argparse.Namespace) -> int:
                 head_to_head_seeds,
                 args.head_to_head_games,
                 args.opening_random_moves,
+                **challenge_kwargs,
             )
             aggregate = combine_evaluation_results(suites)
             suite_wins = sum(result.overall.match_score > 0.5 for result in suites)
@@ -640,6 +979,16 @@ def run(args: argparse.Namespace) -> int:
                 args.promotion_min_match_score,
                 args.promotion_min_suite_wins,
             )
+            if service is not None:
+                service.record_decision(
+                    attempt["id"],
+                    candidate_records[contender.path]["id"],
+                    stage="challenge",
+                    result="passed" if passed else "rejected",
+                    candidate_evaluation_id=challenge_batch["id"],
+                    champion_evaluation_id=screen_batches[round_champion]["id"],
+                    policy=promotion_policy,
+                )
             challenges.append(
                 {
                     "path": str(contender.path),
@@ -658,6 +1007,25 @@ def run(args: argparse.Namespace) -> int:
             )
             if passed:
                 promoted = contender
+                if service is not None:
+                    service.promote(
+                        experiment["id"],
+                        candidate_records[contender.path]["id"],
+                        attempt_id=attempt["id"],
+                        expected_assignment_id=assignment["id"],
+                        candidate_evaluation_id=challenge_batch["id"],
+                        champion_evaluation_id=screen_batches[round_champion]["id"],
+                        policy=promotion_policy,
+                    )
+                    for skipped in contenders[contenders.index(contender) + 1 :]:
+                        service.record_decision(
+                            attempt["id"],
+                            candidate_records[skipped.path]["id"],
+                            stage="challenge",
+                            result="skipped",
+                            reason="earlier ranked contender promoted",
+                            policy=promotion_policy,
+                        )
                 break
 
         summary["head_to_head"] = challenges
@@ -668,6 +1036,16 @@ def run(args: argparse.Namespace) -> int:
                 if not contenders
                 else "no_head_to_head_challenger_passed"
             )
+            if service is not None:
+                service.update_attempt(
+                    attempt["id"],
+                    status="completed",
+                    phase="finished",
+                    outcome="no_qualified_candidate"
+                    if not contenders
+                    else "no_challenger_passed",
+                    stop_reason=summary["stop_reason"],
+                )
             _write_summary(round_dir / "results.json", summary)
             print(
                 f"champion unchanged at episode={champion_metadata.episode}; "
@@ -676,7 +1054,12 @@ def run(args: argparse.Namespace) -> int:
             )
             return 0
 
-        _atomic_copy(promoted.path, args.champion)
+        if service is not None:
+            service.export_checkpoint(
+                candidate_records[promoted.path]["id"], args.champion
+            )
+        else:
+            _atomic_copy(promoted.path, args.champion)
         summary["promoted"] = {
             "path": str(promoted.path),
             "episode": promoted.metadata.episode,

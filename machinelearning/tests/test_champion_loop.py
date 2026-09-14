@@ -267,6 +267,7 @@ def test_loop_promotes_a_screened_head_to_head_winner(
 
     args = parse_args(
         [
+            "--no-audit",
             "--champion",
             str(champion_path),
             "--run-dir",

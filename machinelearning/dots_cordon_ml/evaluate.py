@@ -10,6 +10,18 @@ import time
 import grpc
 import torch
 
+from .audit import AuditService
+from .audit.integration import (
+    add_audit_arguments,
+    checkpoint_record,
+    close_audit,
+    effective_config,
+    ensure_experiment,
+    evaluation_definition,
+    evaluation_result_dict,
+    open_audit,
+    resolve_checkpoint_reference,
+)
 from .checkpoint import CheckpointMetadata, read_checkpoint, restore_agent
 from .dqn import DQNAgent
 from .environment import GameEnvironment
@@ -30,6 +42,7 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         help="zero lets the server play until the board is full",
     )
     parser.add_argument("--rpc-timeout", type=float, default=10.0)
+    add_audit_arguments(parser)
     args = parser.parse_args(arguments)
     if args.games <= 0:
         parser.error("--games must be positive")
@@ -67,8 +80,77 @@ def _metadata(checkpoints: list[Path]) -> list[CheckpointMetadata]:
 
 
 def run(args: argparse.Namespace) -> int:
+    audit = open_audit(args)
+    pending_batches: list[str] = []
+    try:
+        paths = [
+            resolve_checkpoint_reference(
+                reference, audit, experiment_name=args.experiment
+            )
+            for reference in args.checkpoints
+        ]
+        metadata = _metadata(paths)
+        rows, columns = metadata[0].board
+        batch_ids: list[str | None] = []
+        if audit is not None:
+            experiment = ensure_experiment(audit, args, rows, columns)
+            definition = evaluation_definition(
+                args, rows=rows, columns=columns, seed=args.seed, games=args.games
+            )
+            config = effective_config(args)
+            for index, (reference, path) in enumerate(
+                zip(args.checkpoints, paths, strict=True)
+            ):
+                checkpoint = checkpoint_record(
+                    audit, experiment["id"], reference, path=path
+                )
+                paths[index] = resolve_checkpoint_reference(
+                    f"checkpoint:{checkpoint['id']}", audit
+                )
+                batch = audit.create_evaluation(
+                    experiment["id"],
+                    checkpoint["id"],
+                    purpose="standalone_random",
+                    suite_definitions=[definition],
+                    config=config,
+                )
+                batch_ids.append(batch["id"])
+                pending_batches.append(batch["id"])
+            metadata = _metadata(paths)
+        else:
+            batch_ids = [None] * len(paths)
+
+        return _run_evaluations(
+            args, paths, metadata, audit, batch_ids, pending_batches
+        )
+    except BaseException as exc:
+        status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+        if audit is not None:
+            for batch_id in pending_batches:
+                try:
+                    audit.fail_evaluation(
+                        batch_id,
+                        str(exc) or type(exc).__name__,
+                        status=status,
+                    )
+                except Exception as recording_error:
+                    exc.add_note(
+                        f"could not record evaluation failure: {recording_error}"
+                    )
+        raise
+    finally:
+        close_audit(audit)
+
+
+def _run_evaluations(
+    args: argparse.Namespace,
+    paths: list[Path],
+    metadata: list[CheckpointMetadata],
+    audit: AuditService | None,
+    batch_ids: list[str | None],
+    pending_batches: list[str],
+) -> int:
     device = _device(args.device)
-    metadata = _metadata(args.checkpoints)
     rows, columns = metadata[0].board
     game_seeds = random_game_seeds(args.games, args.seed)
 
@@ -85,7 +167,9 @@ def run(args: argparse.Namespace) -> int:
         max_turns=args.max_turns,
         rpc_timeout=args.rpc_timeout,
     ) as environment:
-        for path, item in zip(args.checkpoints, metadata, strict=True):
+        for reference, path, item, batch_id in zip(
+            args.checkpoints, paths, metadata, batch_ids, strict=True
+        ):
             agent = DQNAgent(
                 device=device,
                 learning_rate=3e-4,
@@ -100,11 +184,17 @@ def run(args: argparse.Namespace) -> int:
             started_at = time.monotonic()
             result = evaluate_against_random(environment, agent, game_seeds)
             elapsed = time.monotonic() - started_at
-            print(f"checkpoint={path} episode={item.episode}")
+            if audit is not None and batch_id is not None:
+                audit.complete_suite(batch_id, 0, evaluation_result_dict(result))
+                pending_batches.remove(batch_id)
+            print(f"checkpoint={reference} episode={item.episode}")
             print(f"  overall     {_format_stats(result.overall)}")
             print(f"  as-player-0 {_format_stats(result.as_player_0)}")
             print(f"  as-player-1 {_format_stats(result.as_player_1)}")
-            print(f"  elapsed={elapsed:.1f}s games/s={args.games / elapsed:.2f}", flush=True)
+            print(
+                f"  elapsed={elapsed:.1f}s games/s={args.games / elapsed:.2f}",
+                flush=True,
+            )
 
     return 0
 
