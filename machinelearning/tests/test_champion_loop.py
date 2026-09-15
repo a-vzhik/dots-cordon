@@ -16,6 +16,7 @@ from dots_cordon_ml.champion_loop import (
     _passes_promotion,
     _passes_random_screen,
     _round_seeds,
+    _run_training_round,
     parse_args,
 )
 from dots_cordon_ml.self_play import EvaluationResult, MatchStats
@@ -40,15 +41,19 @@ def evaluated(
     )
 
 
-def test_defaults_describe_four_candidate_thousand_episode_round() -> None:
+def test_defaults_describe_three_candidate_fine_tuning_round() -> None:
     args = parse_args([])
 
-    assert args.candidate_count == 4
+    assert args.candidate_count == 3
     assert args.candidate_interval == 250
-    assert args.evaluation_workers == 5
+    assert args.evaluation_workers == 4
     assert args.training_seed is None
     assert not args.fresh_training_rng
     assert args.training_opponent == "frozen"
+    assert args.random_opponent_probability == 0.20
+    assert args.learning_rate == 1e-4
+    assert args.terminal_win_bonus == 5.0
+    assert args.training_opening_random_moves == 4
     assert args.screen_max_regression == 0.003
     assert args.screen_suites == 3
     assert args.screen_games == 1_000
@@ -73,6 +78,40 @@ def test_training_seed_defaults_to_unix_seconds(
 
 def test_explicit_training_seed_accounts_for_existing_rounds() -> None:
     assert _initial_training_seed(19, round_number=8) == 26
+
+
+def test_training_round_forwards_fine_tuning_regime(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    captured = None
+
+    def fake_run(args: object) -> int:
+        nonlocal captured
+        captured = args
+        args.checkpoint_dir.mkdir(parents=True)
+        for episode in (12_500, 12_750, 13_000):
+            (args.checkpoint_dir / f"dqn-{episode:07d}.pt").touch()
+        return 0
+
+    monkeypatch.setattr(champion_loop.train, "run", fake_run)
+    args = parse_args(["--no-audit"])
+    metadata = CheckpointMetadata(7, 7, 64, 3, 12_250, 0, 0)
+
+    candidates = _run_training_round(
+        args,
+        tmp_path / "champion.pt",
+        metadata,
+        tmp_path / "round",
+        training_seed=19,
+    )
+
+    assert captured is not None
+    assert captured.episodes == 13_000
+    assert captured.learning_rate == 1e-4
+    assert captured.terminal_win_bonus == 5.0
+    assert captured.random_opponent_probability == 0.20
+    assert captured.frozen_opening_random_moves == 4
+    assert len(candidates) == 3
 
 
 def test_round_seeds_are_fresh_and_non_overlapping() -> None:

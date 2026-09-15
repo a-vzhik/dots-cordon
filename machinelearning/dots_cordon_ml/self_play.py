@@ -256,18 +256,34 @@ def collect_against_agent_episode(
     replay: ReplayBuffer,
     epsilon: float,
     learner_player: int,
+    opening_random: np.random.Generator | None = None,
+    opening_random_moves: int = 0,
     terminal_win_bonus: float = 1.0,
     on_transition: Callable[[], None] | None = None,
 ) -> EpisodeResult:
     """Train one player against a frozen greedy agent.
 
-    Only the learner's decisions enter replay. The frozen opponent observes the
-    board from its own perspective and never explores or receives updates.
+    Only the learner's decisions enter replay. Optional random opening moves
+    happen before either policy acts and do not enter replay. The frozen
+    opponent observes the board from its own perspective and never explores or
+    receives updates.
     """
     if learner_player not in (0, 1):
         raise ValueError(f"learner_player must be 0 or 1, got {learner_player}")
+    if opening_random_moves < 0:
+        raise ValueError("opening_random_moves must be non-negative")
+    if opening_random_moves and opening_random is None:
+        raise ValueError("opening_random is required when opening_random_moves > 0")
 
     game = environment.reset()
+    if opening_random is not None:
+        for _ in range(opening_random_moves):
+            if game.terminal:
+                break
+            legal_mask = legal_action_mask(game)
+            action = int(opening_random.choice(np.flatnonzero(legal_mask)))
+            game = environment.step(action).game
+
     pending: _PendingTransition | None = None
     transition_count = 0
 

@@ -426,14 +426,17 @@ uv run dots-cordon-champion-loop \
 ```
 
 Each round reads the current champion from the database, retains an immutable
-file copy, and produces four candidates, 250 episodes apart. `--champion` names
+file copy, and produces three candidates, 250 episodes apart. `--champion` names
 the compatibility file exported after a database promotion. The database
-champion remains authoritative even if that export fails. By default, half of
-the training games use a uniform-random opponent and half use the round's frozen champion; the
-learner alternates seats. Use `--training-opponent self-play` to retain the
-older random/self-play mixture instead.
+champion remains authoritative even if that export fails. By default, 20% of
+the training games use a uniform-random opponent and 80% use the round's frozen
+champion; the learner alternates seats. Frozen-champion games begin with four
+random moves to expose the learner to the same opening diversity used by the
+head-to-head gate. Fine-tuning uses a `1e-4` learning rate and a terminal
+win/loss bonus of `5`. Use `--training-opponent self-play` to retain the older
+random/self-play mixture instead.
 
-The champion and all four candidates are screened on three shared, fresh
+The champion and all three candidates are screened on three shared, fresh
 1,000-game random-opponent suites. Candidates whose aggregate match score is
 no more than `0.003` below the champion are challenged in screen-rank order.
 Each challenge uses three different 1,000-game paired-opening suites. A
@@ -443,9 +446,9 @@ screen-qualified candidate is tested. If none qualifies or passes, the
 command stops without changing the champion. Otherwise it starts another
 round from the promoted checkpoint.
 
-Random screening evaluates the champion and four candidates concurrently,
+Random screening evaluates the champion and three candidates concurrently,
 and the three suites in each head-to-head challenge also run concurrently.
-The default `--evaluation-workers 5` matches the default random-screen size;
+The default `--evaluation-workers 4` matches the default random-screen size;
 set it to `1` to disable parallel evaluation or lower it when memory is tight.
 Each worker owns one model instance and one server-side game, so start the
 server with `--max-games` at least as large as the worker count.

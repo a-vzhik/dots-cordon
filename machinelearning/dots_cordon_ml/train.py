@@ -140,6 +140,15 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
             "without it those episodes use self-play"
         ),
     )
+    parser.add_argument(
+        "--frozen-opening-random-moves",
+        type=int,
+        default=0,
+        help=(
+            "uniform-random opening moves before each frozen-opponent episode; "
+            "the opening does not enter replay"
+        ),
+    )
     parser.add_argument("--log-every", type=int, default=25)
     parser.add_argument("--eval-every", type=int, default=250)
     parser.add_argument("--eval-games", type=int, default=40)
@@ -202,8 +211,15 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
     for name in positive:
         if getattr(args, name) <= 0:
             parser.error(f"--{name.replace('_', '-')} must be positive")
-    if args.max_turns < 0 or args.learning_starts < 0:
-        parser.error("--max-turns and --learning-starts must be non-negative")
+    if (
+        args.max_turns < 0
+        or args.learning_starts < 0
+        or args.frozen_opening_random_moves < 0
+    ):
+        parser.error(
+            "--max-turns, --learning-starts, and --frozen-opening-random-moves "
+            "must be non-negative"
+        )
     if args.blocks < 0 or args.updates_per_transition < 0:
         parser.error("--blocks and --updates-per-transition must be non-negative")
     if args.eval_every < 0 or args.eval_games < 0 or args.checkpoint_every < 0:
@@ -218,8 +234,14 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("epsilon values must satisfy 0 <= end <= start <= 1")
     if not 0 <= args.gamma <= 1:
         parser.error("--gamma must be between zero and one")
+    if args.learning_rate <= 0:
+        parser.error("--learning-rate must be positive")
+    if args.terminal_win_bonus < 0:
+        parser.error("--terminal-win-bonus must be non-negative")
     if not 0 <= args.random_opponent_probability <= 1:
         parser.error("--random-opponent-probability must be between zero and one")
+    if args.frozen_opening_random_moves >= args.rows * args.columns:
+        parser.error("--frozen-opening-random-moves must be smaller than the board")
 
 
 def _device(name: str) -> torch.device:
@@ -278,6 +300,10 @@ def _load_checkpoint(
             f"checkpoint board is {metadata.board}, expected {expected_board}"
         )
     restore_agent(agent, checkpoint, restore_optimizer=True)
+    # Preserve Adam's accumulated state while honoring the learning rate chosen
+    # for this run. load_state_dict also restores the checkpoint's old rate.
+    for parameter_group in agent.optimizer.param_groups:
+        parameter_group["lr"] = args.learning_rate
     rng_state = checkpoint.get("rng_state")
     if rng_state is not None and not isinstance(rng_state, dict):
         raise ValueError("checkpoint contains invalid random state")
@@ -521,6 +547,7 @@ def _run_training(args: argparse.Namespace, service, attempt_id: str | None) -> 
         f"using {device} (starting episode {state.episode + 1}, "
         f"random-opponent probability {args.random_opponent_probability:.2f}, "
         f"other opponent={'frozen' if frozen_opponent is not None else 'self-play'}, "
+        f"frozen-opening-random-moves={args.frozen_opening_random_moves}, "
         f"rng={_rng_source(args, rng_state if args.resume is not None else None)})",
         flush=True,
     )
@@ -709,6 +736,8 @@ def _run_training(args: argparse.Namespace, service, attempt_id: str | None) -> 
                         replay,
                         epsilon=epsilon,
                         learner_player=learner_player,
+                        opening_random=training_opponent_random,
+                        opening_random_moves=args.frozen_opening_random_moves,
                         terminal_win_bonus=args.terminal_win_bonus,
                         on_transition=optimize,
                     )

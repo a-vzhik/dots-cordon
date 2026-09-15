@@ -253,7 +253,7 @@ def test_repeated_resume_from_one_checkpoint_creates_independent_branches(
         for child in children:
             assert child["status"] == "completed"
             assert child["config"]["learning_rate"] == 0.01
-            assert child["config"]["effective_optimizer"][0]["lr"] == 3e-4
+            assert child["config"]["effective_optimizer"][0]["lr"] == 0.01
             assert child["config"]["rng_source"].startswith("fresh-seed:")
             chain = checkpoint_rows(audit, child["id"])
             assert chain[0]["parent_checkpoint_id"] == parent["id"]

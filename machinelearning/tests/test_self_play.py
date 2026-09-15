@@ -59,6 +59,7 @@ class FixedActionAgent:
 
 class ScriptedEnvironment:
     def __init__(self) -> None:
+        self.actions: list[int] = []
         self.initial = state([0, 0, 0], turn=0, player=0)
         self.steps = iter(
             [
@@ -89,7 +90,8 @@ class ScriptedEnvironment:
     def reset(self) -> game_pb2.GameState:
         return self.initial
 
-    def step(self, _action: int) -> StepResult:
+    def step(self, action: int) -> StepResult:
+        self.actions.append(action)
         return next(self.steps)
 
 
@@ -153,6 +155,32 @@ def test_frozen_opponent_episode_records_only_learner_transitions() -> None:
     assert opponent.calls == 1
     assert [item.reward for item in transitions] == [-1.0, -1.0]
     assert [item.done for item in transitions] == [False, True]
+
+
+def test_frozen_opponent_episode_uses_reproducible_unrecorded_opening() -> None:
+    environments = (ScriptedEnvironment(), ScriptedEnvironment())
+    results = []
+
+    for environment in environments:
+        replay = ReplayBuffer(capacity=10, seed=1)
+        opponent = FixedActionAgent(1)
+        results.append(
+            collect_against_agent_episode(
+                environment,
+                FirstLegalAgent(),
+                opponent,
+                replay,
+                epsilon=0.5,
+                learner_player=0,
+                opening_random=np.random.default_rng(8),
+                opening_random_moves=2,
+            )
+        )
+        assert opponent.calls == 0
+        assert len(replay) == 1
+
+    assert environments[0].actions == environments[1].actions
+    assert results[0].transitions == results[1].transitions == 1
 
 
 class OneMoveEvaluationEnvironment:

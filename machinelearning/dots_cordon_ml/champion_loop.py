@@ -76,12 +76,12 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         default=0,
         help="maximum promoted rounds; zero continues until no challenger passes",
     )
-    parser.add_argument("--candidate-count", type=int, default=4)
+    parser.add_argument("--candidate-count", type=int, default=3)
     parser.add_argument("--candidate-interval", type=int, default=250)
     parser.add_argument(
         "--evaluation-workers",
         type=int,
-        default=5,
+        default=4,
         help=("maximum parallel random-screen checkpoints or head-to-head suites"),
     )
     parser.add_argument(
@@ -104,7 +104,25 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         default="frozen",
         help="opponent used by non-random training episodes",
     )
-    parser.add_argument("--random-opponent-probability", type=float, default=0.50)
+    parser.add_argument("--random-opponent-probability", type=float, default=0.20)
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=1e-4,
+        help="optimizer learning rate used for each fine-tuning round",
+    )
+    parser.add_argument(
+        "--terminal-win-bonus",
+        type=float,
+        default=5.0,
+        help="terminal reward added for a win and subtracted for a loss",
+    )
+    parser.add_argument(
+        "--training-opening-random-moves",
+        type=int,
+        default=4,
+        help="random opening moves in each frozen-champion training game",
+    )
     parser.add_argument("--training-log-every", type=int, default=25)
     parser.add_argument("--screen-games", type=int, default=1_000)
     parser.add_argument("--screen-suites", type=int, default=3)
@@ -166,8 +184,12 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("--max-rounds and --max-turns must be non-negative")
     if args.screen_seed < 0 or args.head_to_head_seed < 0:
         parser.error("evaluation seeds must be non-negative")
-    if args.opening_random_moves < 0:
-        parser.error("--opening-random-moves must be non-negative")
+    if args.opening_random_moves < 0 or args.training_opening_random_moves < 0:
+        parser.error("opening random-move counts must be non-negative")
+    if args.learning_rate <= 0:
+        parser.error("--learning-rate must be positive")
+    if args.terminal_win_bonus < 0:
+        parser.error("--terminal-win-bonus must be non-negative")
     if args.head_to_head_games % 2:
         parser.error("--head-to-head-games must be even for paired seats")
     if not 0 <= args.random_opponent_probability <= 1:
@@ -297,6 +319,10 @@ def _run_training_round(
         args.device,
         "--random-opponent-probability",
         str(args.random_opponent_probability),
+        "--learning-rate",
+        str(args.learning_rate),
+        "--terminal-win-bonus",
+        str(args.terminal_win_bonus),
         "--log-every",
         str(args.training_log_every),
         "--eval-every",
@@ -314,7 +340,14 @@ def _run_training_round(
         str(args.rpc_timeout),
     ]
     if args.training_opponent == "frozen":
-        arguments.extend(("--frozen-opponent", str(champion)))
+        arguments.extend(
+            (
+                "--frozen-opponent",
+                str(champion),
+                "--frozen-opening-random-moves",
+                str(args.training_opening_random_moves),
+            )
+        )
     if args.fresh_training_rng:
         arguments.append("--reset-rng-on-resume")
 
@@ -744,6 +777,13 @@ def _run_loop(args: argparse.Namespace, service) -> int:
             >= champion_metadata.rows * champion_metadata.columns
         ):
             raise ValueError("--opening-random-moves must be smaller than the board")
+        if (
+            args.training_opening_random_moves
+            >= champion_metadata.rows * champion_metadata.columns
+        ):
+            raise ValueError(
+                "--training-opening-random-moves must be smaller than the board"
+            )
 
         round_dir = (
             args.run_dir
@@ -830,7 +870,11 @@ def _run_loop(args: argparse.Namespace, service) -> int:
             "fresh_training_rng": args.fresh_training_rng,
             "training_seed": training_seed,
             "evaluation_workers": args.evaluation_workers,
+            "candidate_count": args.candidate_count,
             "random_opponent_probability": args.random_opponent_probability,
+            "learning_rate": args.learning_rate,
+            "terminal_win_bonus": args.terminal_win_bonus,
+            "training_opening_random_moves": args.training_opening_random_moves,
             "candidate_interval": args.candidate_interval,
             "screen_games_per_suite": args.screen_games,
             "screen_seeds": list(screen_seeds),

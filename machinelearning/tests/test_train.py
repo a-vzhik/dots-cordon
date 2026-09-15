@@ -57,6 +57,19 @@ def test_resume_rng_can_be_restored_or_reset_from_seed() -> None:
     assert _rng_source(reset, {"saved": True}) == "fresh-seed:19"
 
 
+def test_frozen_opening_random_moves_parameter_is_available() -> None:
+    args = parse_args(
+        [
+            "--frozen-opponent",
+            "champion.pt",
+            "--frozen-opening-random-moves",
+            "4",
+        ]
+    )
+
+    assert args.frozen_opening_random_moves == 4
+
+
 def test_monitor_saves_small_best_but_does_not_reset_patience() -> None:
     monitor = EvaluationMonitor(patience=2, min_delta=0.005)
 
