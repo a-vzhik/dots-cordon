@@ -101,6 +101,30 @@ func (cpf *CordonPathFinder) BuildIndex(floodFillGrid [][]FloodFillCellState) {
 	slog.Debug(fmt.Sprintf("Cordon index: %+v", cpf.Index))
 }
 
+func cordonAreaSize(cordon []Coord) (uint8, uint8) {
+	if len(cordon) == 0 {
+		return 0, 0
+	}
+
+	minRowCoord := slices.MinFunc(cordon, func(a Coord, b Coord) int {
+		return cmp.Compare(a.Row, b.Row)
+	})
+
+	maxRowCoord := slices.MaxFunc(cordon, func(a Coord, b Coord) int {
+		return cmp.Compare(a.Row, b.Row)
+	})
+
+	minColCoord := slices.MinFunc(cordon, func(a Coord, b Coord) int {
+		return cmp.Compare(a.Col, b.Col)
+	})
+
+	maxColCoord := slices.MaxFunc(cordon, func(a Coord, b Coord) int {
+		return cmp.Compare(a.Col, b.Col)
+	})
+
+	return maxColCoord.Col - minColCoord.Col, maxRowCoord.Row - minRowCoord.Row
+}
+
 func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [][]Coord {
 	// Firstly I need to build an index of all BLOCKED dots which are on the outer edge.
 	cpf.sourceFloodFillGrid = floodFillGrid
@@ -146,7 +170,6 @@ func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [
 		}
 
 		extractedCordon = trimToClosedCordon(extractedCordon)
-
 		slog.Debug(fmt.Sprintf("Cordon: len=%d, %+v", len(extractedCordon), extractedCordon))
 
 		// Cordon of 4 has effectively 3 points and doesn't capture anything.
@@ -167,36 +190,6 @@ func (cpf *CordonPathFinder) FindCordons(floodFillGrid [][]FloodFillCellState) [
 }
 
 func (cpf *CordonPathFinder) UpdateIndex(extractedCordon []Coord) {
-	/*
-
-		// Game board:
-		//       c0 c1 c2 c3 c4
-		// r0    B  B  B  .  .
-		// r1    B  R  B  R  .
-		// r2    B  B  B  B  B
-		// r3    .  R  B  R  B
-		// r4    .  .  B  B  B
-		//
-
-		   * 2026/08/30 17:33:02 INFO Cordon: len=4, [{Row:1 Col:2} {Row:2 Col:2} {Row:2 Col:3} {Row:1 Col:2}]
-		   2026/08/30 17:33:02 INFO Index:  map[{Row:0 Col:0}:<nil> {Row:0 Col:1}:<nil>
-		   {Row:0 Col:2}:<nil> {Row:1 Col:0}:<nil> {Row:1 Col:2}:<nil>
-		   {Row:2 Col:0}:<nil> {Row:2 Col:1}:<nil> {Row:2 Col:2}:<nil>
-		   {Row:2 Col:3}:<nil> {Row:3 Col:2}:<nil>]
-
-	*/
-
-	/**
-	  Pruned index:
-	  map[{Row:0 Col:0}:<nil> {Row:0 Col:1}:<nil>
-	  {Row:0 Col:2}:<nil> {Row:1 Col:0}:<nil>
-	  {Row:2 Col:0}:<nil> {Row:2 Col:1}:<nil>  {Row:3 Col:2}:<nil>]
-
-		(1,2) => 01, 02, 21 => mark kept.
-		(2,2) => 21 32 => mark kept
-		(2,3) =>
-
-	*/
 	// Delete all cordon keys from the index.
 	for _, key := range extractedCordon {
 		delete(cpf.Index, key)
@@ -235,7 +228,14 @@ func (cpf *CordonPathFinder) WalkCordonStep(toKey Coord, fromKey Coord) (bool, b
 		// which could be the entire cordon or part of it
 
 		if len(cpf.Ordered)-loopStart <= 4 {
-			slog.Info(fmt.Sprintf("Small loop dead end found: %+v", cpf.Ordered))
+			slog.Debug(fmt.Sprintf("Small loop dead end found: %+v", cpf.Ordered))
+			return false, true
+		}
+
+		trimmedCordon := trimToClosedCordon(cpf.Ordered)
+		cordonAreaWidth, cordonAreaHeight := cordonAreaSize(trimmedCordon)
+		if cordonAreaHeight <= 1 || cordonAreaWidth <= 1 {
+			slog.Debug(fmt.Sprintf("Empty Area cordon dead end found: %+v", cpf.Ordered))
 			return false, true
 		}
 
@@ -285,7 +285,7 @@ func (cpf *CordonPathFinder) WalkCordonStep(toKey Coord, fromKey Coord) (bool, b
 			//delete(cpf.Index, cpf.Ordered[len(cpf.Ordered)-1])
 			cpf.Ordered = cpf.Ordered[:len(cpf.Ordered)-1]
 
-			slog.Info(fmt.Sprintf("Dead end unwound %+v", cpf.Ordered))
+			slog.Debug(fmt.Sprintf("Dead end unwound %+v", cpf.Ordered))
 		}
 	}
 	return false, true

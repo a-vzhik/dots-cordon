@@ -89,6 +89,13 @@ func TestGameReplay_MeVsCodex2(t *testing.T) {
 	assert.Equal(t, 7, totalCaptures)
 }
 
+func TestGameReplay_HangingGameRegression(t *testing.T) {
+	game, captureMoveCount := replayRecordedGameAndCountCaptures(t, "hanging-game-reproduction.json")
+	assert.Equal(t, 1, captureMoveCount)
+	assert.Zero(t, game.Players[0].Score)
+	assert.Equal(t, uint32(5), game.Players[1].Score)
+}
+
 func replayRecordedGameAndCountCaptures(t *testing.T, fileName string) (*Game, int) {
 	t.Helper()
 	filePath := filepath.Join("testdata", fileName)

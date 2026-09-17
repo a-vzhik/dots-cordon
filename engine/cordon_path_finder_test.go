@@ -508,6 +508,58 @@ func TestFindCordons_TwoRaggedPocketsSharingCorner(t *testing.T) {
 	}, cordons[1])
 }
 
+func TestFindCordons_TwoPocketsWithSolidBlockRegression(t *testing.T) {
+	// Flood-fill output from hanging-game-reproduction.json after player 1
+	// places a dot at (3, 5). The two blocked pockets are (2, 5) and
+	// {(3, 2), (4, 2), (4, 3), (4, 4), (4, 5)}.
+	// The solid 2x2 player-1 block at rows 2-3, columns 3-4 forms a cycle
+	// with no trapped cells. Extraction must terminate with two cordons.
+	const (
+		N = engine.FloodFillCellStateNone
+		B = engine.FloodFillCellStateBlocked
+		E = engine.FloodFillCellStateEscaped
+		P = engine.FloodFillCellStatePotentialBlocked
+	)
+	floodFillGrid := [][]engine.FloodFillCellState{
+		{E, E, E, E, E, E, E},
+		{E, E, E, E, E, P, E},
+		{E, E, P, P, P, B, P},
+		{E, P, B, P, P, P, E},
+		{E, P, B, B, B, B, P},
+		{N, E, P, P, P, P, E},
+		{E, E, N, E, N, E, E},
+	}
+
+	pathFinder := engine.NewCordonPathFinder()
+	cordons := pathFinder.FindCordons(floodFillGrid)
+
+	assert.Equal(t, [][]engine.Coord{
+		{
+			{Row: 3, Col: 5},
+			{Row: 3, Col: 4},
+			{Row: 2, Col: 4},
+			{Row: 2, Col: 3},
+			{Row: 3, Col: 3},
+			{Row: 2, Col: 2},
+			{Row: 3, Col: 1},
+			{Row: 4, Col: 1},
+			{Row: 5, Col: 2},
+			{Row: 5, Col: 3},
+			{Row: 5, Col: 4},
+			{Row: 5, Col: 5},
+			{Row: 4, Col: 6},
+			{Row: 3, Col: 5},
+		},
+		{
+			{Row: 1, Col: 5},
+			{Row: 2, Col: 6},
+			{Row: 3, Col: 5},
+			{Row: 2, Col: 4},
+			{Row: 1, Col: 5},
+		},
+	}, cordons)
+}
+
 func TestFindCordons_BalancedRandomBoard(t *testing.T) {
 	// Game board:
 	//       c0 c1 c2 c3 c4 c5 c6 c7
