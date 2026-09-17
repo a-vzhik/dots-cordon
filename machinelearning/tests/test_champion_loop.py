@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from threading import Barrier, Lock, get_ident
 
@@ -12,9 +13,11 @@ from dots_cordon_ml.champion_loop import (
     EvaluatedCheckpoint,
     _evaluate_head_to_head_suites,
     _evaluate_random_screen,
+    _extended_minimum_match_score,
     _initial_training_seed,
     _passes_promotion,
     _passes_random_screen,
+    _requires_extended_validation,
     _round_seeds,
     _run_training_round,
     parse_args,
@@ -47,6 +50,7 @@ def test_defaults_describe_three_candidate_fine_tuning_round() -> None:
     assert args.candidate_count == 3
     assert args.candidate_interval == 250
     assert args.evaluation_workers == 4
+    assert args.max_consecutive_failures == 20
     assert args.training_seed is None
     assert not args.fresh_training_rng
     assert args.training_opponent == "frozen"
@@ -59,6 +63,8 @@ def test_defaults_describe_three_candidate_fine_tuning_round() -> None:
     assert args.screen_games == 1_000
     assert args.head_to_head_suites == 3
     assert args.head_to_head_games == 1_000
+    assert args.extended_head_to_head_games == 1_000
+    assert args.extended_head_to_head_suites == 10
 
 
 def test_fresh_training_rng_parameter_is_available() -> None:
@@ -234,6 +240,20 @@ def test_promotion_requires_combined_score_and_suite_wins() -> None:
     assert not _passes_promotion(one_suite_win, 0.52, 2)
 
 
+def test_extended_validation_is_only_for_marginal_initial_winners() -> None:
+    assert _requires_extended_validation((result(51, 0, 49, 0.1),), 0.52)
+    assert not _requires_extended_validation((result(50, 0, 50, 0.0),), 0.52)
+    assert not _requires_extended_validation((result(52, 0, 48, 0.2),), 0.52)
+
+
+def test_extended_validation_promotes_any_strict_win_but_not_a_tie() -> None:
+    threshold = _extended_minimum_match_score(10_000)
+
+    assert threshold == 0.50005
+    assert _passes_promotion((result(5_001, 0, 4_999, 0.1),), threshold, 1)
+    assert not _passes_promotion((result(5_000, 0, 5_000, 0.0),), threshold, 1)
+
+
 def test_loop_promotes_a_screened_head_to_head_winner(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
@@ -327,3 +347,112 @@ def test_loop_promotes_a_screened_head_to_head_winner(
     assert promoted_metadata.episode == 350
     assert int(promoted["online"]["marker"]) == 2
     assert (tmp_path / "rounds/round-001-from-0000100/results.json").is_file()
+
+
+def test_loop_retries_failures_with_new_seeds_and_resets_after_promotion(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    champion_path = tmp_path / "champion.pt"
+
+    def save_checkpoint(path: Path, episode: int, marker: int) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(
+            {
+                "online": {"marker": torch.tensor(marker)},
+                "training_state": {
+                    "episode": episode,
+                    "environment_steps": 0,
+                    "optimization_steps": 0,
+                },
+                "board": {"rows": 7, "columns": 7},
+                "model": {"channels": 64, "blocks": 3},
+            },
+            path,
+        )
+
+    save_checkpoint(champion_path, episode=100, marker=1)
+    training_seeds: list[int] = []
+    candidate_screen_wins = (40, 60, 40, 40)
+
+    def fake_training(
+        args: object,
+        _champion: Path,
+        metadata: CheckpointMetadata,
+        round_dir: Path,
+        training_seed: int,
+        **_kwargs: object,
+    ) -> tuple[Path, ...]:
+        training_seeds.append(training_seed)
+        episode = metadata.episode + args.candidate_interval
+        candidate = round_dir / "candidates" / f"dqn-{episode:07d}.pt"
+        save_checkpoint(candidate, episode, marker=len(training_seeds) + 1)
+        return (candidate,)
+
+    def fake_screen(
+        _args: object,
+        paths: tuple[Path, ...],
+        _device: object,
+        _suite_seeds: object,
+        _games: int,
+        **_kwargs: object,
+    ) -> tuple[EvaluatedCheckpoint, ...]:
+        candidate_wins = candidate_screen_wins[len(training_seeds) - 1]
+        output = []
+        for index, path in enumerate(paths):
+            _, metadata = champion_loop.read_checkpoint(path, map_location="cpu")
+            wins = 50 if index == 0 else candidate_wins
+            item = evaluated(metadata.episode, wins, 0, 100 - wins, wins - 50)
+            output.append(
+                EvaluatedCheckpoint(path, metadata, item.suites, item.aggregate)
+            )
+        return tuple(output)
+
+    def fake_head_to_head(
+        *_args: object, **_kwargs: object
+    ) -> tuple[EvaluationResult, ...]:
+        return (
+            result(55, 0, 45, 0.2),
+            result(55, 0, 45, 0.2),
+            result(55, 0, 45, 0.2),
+        )
+
+    monkeypatch.setattr(champion_loop, "_run_training_round", fake_training)
+    monkeypatch.setattr(champion_loop, "_evaluate_random_screen", fake_screen)
+    monkeypatch.setattr(
+        champion_loop,
+        "_evaluate_head_to_head_suites",
+        fake_head_to_head,
+    )
+    run_dir = tmp_path / "rounds"
+    args = parse_args(
+        [
+            "--no-audit",
+            "--champion",
+            str(champion_path),
+            "--run-dir",
+            str(run_dir),
+            "--candidate-count",
+            "1",
+            "--candidate-interval",
+            "1",
+            "--training-seed",
+            "19",
+            "--max-consecutive-failures",
+            "2",
+            "--device",
+            "cpu",
+        ]
+    )
+
+    assert champion_loop.run(args) == 0
+    assert training_seeds == [19, 20, 21, 22]
+    _, champion_metadata = champion_loop.read_checkpoint(
+        champion_path, map_location="cpu"
+    )
+    assert champion_metadata.episode == 101
+
+    summaries = [
+        json.loads(path.read_text())
+        for path in sorted(run_dir.glob("round-*/results.json"))
+    ]
+    assert [item["consecutive_failures"] for item in summaries] == [1, 0, 1, 2]

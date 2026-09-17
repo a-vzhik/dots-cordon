@@ -105,6 +105,8 @@ def arguments(url: str, champion: Path, run_dir: Path, *extra: str):
             "1",
             "--max-rounds",
             "2",
+            "--max-consecutive-failures",
+            "1",
             "--evaluation-workers",
             "1",
             "--training-seed",
@@ -315,6 +317,105 @@ def test_qualified_candidate_losing_challenge_retains_rejection_evidence(
     assert all(suite["player_0_losses"] == 2 for suite in evidence["suites"])
     assert len(service.champion_history(experiment["id"])) == 1
     assert read_checkpoint(champion, map_location="cpu")[1].episode == 0
+
+
+def test_marginal_challenger_promotes_after_extended_validation(
+    tmp_path: Path,
+    database: tuple[str, AuditService],
+    tiny_training: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url, service = database
+    champion = tmp_path / "champion.pt"
+    initial_champion(champion)
+
+    def exact_result(games: int, wins: int) -> EvaluationResult:
+        games_per_seat = games // 2
+        player_0_wins = (wins + 1) // 2
+        player_1_wins = wins - player_0_wins
+
+        def stats(seat_wins: int) -> MatchStats:
+            losses = games_per_seat - seat_wins
+            difference = seat_wins - losses
+            return MatchStats(
+                games_per_seat,
+                seat_wins,
+                0,
+                losses,
+                difference / games_per_seat,
+                difference,
+            )
+
+        player_0 = stats(player_0_wins)
+        player_1 = stats(player_1_wins)
+        difference = player_0.score_difference_sum + player_1.score_difference_sum
+        return EvaluationResult(
+            MatchStats(
+                games,
+                wins,
+                0,
+                games - wins,
+                difference / games,
+                difference,
+            ),
+            player_0,
+            player_1,
+        )
+
+    def screen(args, path, _device, seeds, _games):
+        return evaluated(path, seeds, 1 if is_incumbent(service, args, path) else 2)
+
+    def challenge(_args, _candidate, _incumbent, _device, _seed, games, _opening):
+        if games == 100:
+            return exact_result(100, 51)
+        assert games == 1_000
+        return exact_result(1_000, 501)
+
+    monkeypatch.setattr(champion_loop, "_evaluate_against_random_suites", screen)
+    monkeypatch.setattr(champion_loop, "_evaluate_head_to_head_suite", challenge)
+    args = arguments(
+        url,
+        champion,
+        tmp_path / "rounds",
+        "--candidate-count",
+        "1",
+        "--max-rounds",
+        "1",
+        "--head-to-head-games",
+        "100",
+        "--head-to-head-suites",
+        "1",
+        "--promotion-min-suite-wins",
+        "1",
+    )
+
+    assert champion_loop.run(args) == 0
+    assert read_checkpoint(champion, map_location="cpu")[1].episode == 1
+
+    experiment = service.get_experiment("default")
+    batches = service.list_evaluations(experiment["id"])
+    challenges = [item for item in batches if item["purpose"] == "head_to_head"]
+    assert len(challenges) == 2
+    initial_evaluation = service.get_evaluation(challenges[0]["id"])
+    extended_evaluation = service.get_evaluation(challenges[1]["id"])
+    assert [suite["expected_games"] for suite in initial_evaluation["suites"]] == [
+        100
+    ]
+    assert [suite["expected_games"] for suite in extended_evaluation["suites"]] == [
+        1_000
+    ] * 10
+    assert len(
+        {suite["definition"]["seed"] for suite in extended_evaluation["suites"]}
+    ) == 10
+    (attempt,) = service.list_attempts(experiment["id"])
+    decisions = service.list_decisions(attempt["id"])
+    assert [
+        item["result"]
+        for item in decisions
+        if item["stage"] == "challenge"
+    ] == ["extended", "passed"]
+    promotion = next(item for item in decisions if item["result"] == "promoted")
+    assert promotion["candidate_evaluation_id"] == challenges[1]["id"]
 
 
 def test_failed_challenge_preserves_completed_suite_without_promoting(

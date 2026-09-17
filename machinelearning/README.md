@@ -441,10 +441,18 @@ The champion and all three candidates are screened on three shared, fresh
 no more than `0.003` below the champion are challenged in screen-rank order.
 Each challenge uses three different 1,000-game paired-opening suites. A
 challenger is promoted when it wins at least two suites and has a combined
-match score of at least `0.52`. If a challenger fails, the next
-screen-qualified candidate is tested. If none qualifies or passes, the
-command stops without changing the champion. Otherwise it starts another
-round from the promoted checkpoint.
+match score of at least `0.52`. A challenger with an aggregate score strictly
+above `0.5` but below `0.52` receives ten independently seeded 1,000-game
+paired-opening suites. These run in parallel up to `--evaluation-workers` and
+are combined into one 10,000-game result. The challenger is promoted if that
+aggregate match score is strictly above `0.5`, regardless of the winning
+margin. Configure the second stage with `--extended-head-to-head-games`,
+`--extended-head-to-head-suites`, and `--extended-head-to-head-seed`. If a
+challenger fails, the next screen-qualified candidate is tested. If none
+qualifies or passes, the loop keeps the current champion and starts another
+training round with a new seed. It stops after 20 consecutive rounds without a
+promotion. A promotion resets that failure counter to zero and starts another
+round from the new champion.
 
 Random screening evaluates the champion and three candidates concurrently,
 and the three suites in each head-to-head challenge also run concurrently.
@@ -453,8 +461,11 @@ set it to `1` to disable parallel evaluation or lower it when memory is tight.
 Each worker owns one model instance and one server-side game, so start the
 server with `--max-games` at least as large as the worker count.
 
-`--max-rounds 0`, the default, continues until a round produces no promotion.
-Set a positive limit to cap one invocation. Every round retains
+`--max-consecutive-failures 20`, the default, controls how many unsuccessful
+rounds the loop tolerates. Set it to `1` to recover the old stop-after-one-
+failure behavior. `--max-rounds 0`, the default, leaves the number of
+promotions uncapped; set a positive value to cap promotions in one invocation.
+Every round retains
 `champion-before.pt`, all candidate checkpoints, and a machine-readable
 `results.json` under the run directory. Checkpoints and completed evaluation
 suites are also recorded incrementally in the database, so an interrupted round

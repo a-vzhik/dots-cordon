@@ -74,7 +74,16 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         "--max-rounds",
         type=int,
         default=0,
-        help="maximum promoted rounds; zero continues until no challenger passes",
+        help="maximum promotions in one invocation; zero leaves this uncapped",
+    )
+    parser.add_argument(
+        "--max-consecutive-failures",
+        type=int,
+        default=20,
+        help=(
+            "stop after this many consecutive rounds without a promotion; "
+            "the counter resets after every promotion"
+        ),
     )
     parser.add_argument("--candidate-count", type=int, default=3)
     parser.add_argument("--candidate-interval", type=int, default=250)
@@ -139,6 +148,27 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--head-to-head-games", type=int, default=1_000)
     parser.add_argument("--head-to-head-suites", type=int, default=3)
     parser.add_argument("--head-to-head-seed", type=int, default=40_000_001)
+    parser.add_argument(
+        "--extended-head-to-head-games",
+        type=int,
+        default=1_000,
+        help=(
+            "paired-opening games per extended validation suite for a challenger "
+            "whose initial aggregate score is above 0.5 but below the threshold"
+        ),
+    )
+    parser.add_argument(
+        "--extended-head-to-head-suites",
+        type=int,
+        default=10,
+        help="independently seeded suites in extended head-to-head validation",
+    )
+    parser.add_argument(
+        "--extended-head-to-head-seed",
+        type=int,
+        default=50_000_001,
+        help="base seed for extended head-to-head validation",
+    )
     parser.add_argument("--opening-random-moves", type=int, default=4)
     parser.add_argument(
         "--promotion-min-match-score",
@@ -170,11 +200,14 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         "candidate_count",
         "candidate_interval",
         "evaluation_workers",
+        "max_consecutive_failures",
         "training_log_every",
         "screen_games",
         "screen_suites",
         "head_to_head_games",
         "head_to_head_suites",
+        "extended_head_to_head_games",
+        "extended_head_to_head_suites",
         "rpc_timeout",
     )
     for name in positive:
@@ -182,7 +215,11 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
             parser.error(f"--{name.replace('_', '-')} must be positive")
     if args.max_rounds < 0 or args.max_turns < 0:
         parser.error("--max-rounds and --max-turns must be non-negative")
-    if args.screen_seed < 0 or args.head_to_head_seed < 0:
+    if (
+        args.screen_seed < 0
+        or args.head_to_head_seed < 0
+        or args.extended_head_to_head_seed < 0
+    ):
         parser.error("evaluation seeds must be non-negative")
     if args.opening_random_moves < 0 or args.training_opening_random_moves < 0:
         parser.error("opening random-move counts must be non-negative")
@@ -192,6 +229,10 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
         parser.error("--terminal-win-bonus must be non-negative")
     if args.head_to_head_games % 2:
         parser.error("--head-to-head-games must be even for paired seats")
+    if args.extended_head_to_head_games % 2:
+        parser.error(
+            "--extended-head-to-head-games must be even for paired seats"
+        )
     if not 0 <= args.random_opponent_probability <= 1:
         parser.error("--random-opponent-probability must be between zero and one")
     if args.screen_max_regression < 0:
@@ -650,6 +691,20 @@ def _passes_promotion(
     )
 
 
+def _requires_extended_validation(
+    results: tuple[EvaluationResult, ...],
+    normal_minimum_match_score: float,
+) -> bool:
+    match_score = combine_evaluation_results(results).overall.match_score
+    return 0.5 < match_score < normal_minimum_match_score
+
+
+def _extended_minimum_match_score(games: int) -> float:
+    # A draw is half a match point, so this is the smallest score strictly
+    # greater than 0.5 that can be represented by a suite of this size.
+    return 0.5 + 0.5 / games
+
+
 def _format_stats(stats: MatchStats) -> str:
     return (
         f"games={stats.games} W/D/L={stats.wins}/{stats.draws}/{stats.losses} "
@@ -757,9 +812,11 @@ def _run_loop(args: argparse.Namespace, service) -> int:
         args.training_seed,
         round_number,
     )
-    rounds_completed = 0
+    promotions_completed = 0
+    rounds_attempted = 0
+    consecutive_failures = 0
 
-    while args.max_rounds == 0 or rounds_completed < args.max_rounds:
+    while args.max_rounds == 0 or promotions_completed < args.max_rounds:
         champion_source = args.champion
         if service is not None:
             assignment = service.current_champion(experiment["id"])
@@ -792,7 +849,7 @@ def _run_loop(args: argparse.Namespace, service) -> int:
         round_dir.mkdir(parents=True, exist_ok=False)
         round_champion = round_dir / "champion-before.pt"
         _atomic_copy(champion_source, round_champion)
-        training_seed = initial_training_seed + rounds_completed
+        training_seed = initial_training_seed + rounds_attempted
         audit_kwargs = {}
         if service is not None:
             attempt = service.create_attempt(
@@ -881,9 +938,15 @@ def _run_loop(args: argparse.Namespace, service) -> int:
             "screen_max_regression": args.screen_max_regression,
             "head_to_head_games_per_suite": args.head_to_head_games,
             "head_to_head_seeds": list(head_to_head_seeds),
+            "extended_head_to_head_games_per_suite": (
+                args.extended_head_to_head_games
+            ),
+            "extended_head_to_head_suites": args.extended_head_to_head_suites,
+            "extended_head_to_head_seed_base": args.extended_head_to_head_seed,
             "opening_random_moves": args.opening_random_moves,
             "promotion_min_match_score": args.promotion_min_match_score,
             "promotion_min_suite_wins": args.promotion_min_suite_wins,
+            "max_consecutive_failures": args.max_consecutive_failures,
         }
 
         screen_kwargs = {}
@@ -980,6 +1043,7 @@ def _run_loop(args: argparse.Namespace, service) -> int:
 
         challenges: list[dict[str, object]] = []
         promoted: EvaluatedCheckpoint | None = None
+        extended_head_to_head_seeds: tuple[int, ...] | None = None
         for contender in contenders:
             challenge_kwargs = {}
             promotion_policy = {
@@ -1027,7 +1091,144 @@ def _run_loop(args: argparse.Namespace, service) -> int:
                 args.promotion_min_match_score,
                 args.promotion_min_suite_wins,
             )
-            if service is not None:
+            requires_extended = not passed and _requires_extended_validation(
+                suites, args.promotion_min_match_score
+            )
+            challenge_record: dict[str, object] = {
+                "path": str(contender.path),
+                "episode": contender.metadata.episode,
+                "suites": [_result_dict(result) for result in suites],
+                "aggregate": _result_dict(aggregate),
+                "suite_wins": suite_wins,
+                "initial_passed": passed,
+                "passed": passed,
+                "extended": None,
+            }
+            print(
+                f"promotion-gate episode={contender.metadata.episode} "
+                f"suite-wins={suite_wins}/{args.head_to_head_suites} "
+                f"passed={'yes' if passed else 'no'} "
+                f"extended={'yes' if requires_extended else 'no'}",
+                flush=True,
+            )
+
+            promotion_evaluation_id = (
+                challenge_batch["id"] if service is not None else None
+            )
+            if requires_extended:
+                if service is not None:
+                    service.record_decision(
+                        attempt["id"],
+                        candidate_records[contender.path]["id"],
+                        stage="challenge",
+                        result="extended",
+                        reason=(
+                            "initial aggregate match score is above 0.5 but below "
+                            "the normal promotion threshold"
+                        ),
+                        candidate_evaluation_id=challenge_batch["id"],
+                        champion_evaluation_id=screen_batches[round_champion]["id"],
+                        policy=promotion_policy,
+                    )
+                if extended_head_to_head_seeds is None:
+                    if service is not None:
+                        extended_head_to_head_seeds = service.reserve_suite_seeds(
+                            experiment["id"],
+                            "extended_head_to_head",
+                            args.extended_head_to_head_suites,
+                            args.extended_head_to_head_seed,
+                        )
+                    else:
+                        extended_head_to_head_seeds = _round_seeds(
+                            args.extended_head_to_head_seed,
+                            round_number,
+                            args.extended_head_to_head_suites,
+                        )
+                extended_total_games = (
+                    args.extended_head_to_head_games
+                    * args.extended_head_to_head_suites
+                )
+                extended_policy = {
+                    "promotion_min_match_score": _extended_minimum_match_score(
+                        extended_total_games
+                    ),
+                    "promotion_min_suite_wins": 1,
+                    "extended_validation": True,
+                }
+                extended_kwargs = {}
+                if service is not None:
+                    extended_batch = service.create_evaluation(
+                        experiment["id"],
+                        candidate_records[contender.path]["id"],
+                        purpose="head_to_head",
+                        attempt_id=attempt["id"],
+                        opponent_checkpoint_id=assignment["checkpoint_id"],
+                        suite_definitions=[
+                            evaluation_definition(
+                                args,
+                                rows=champion_metadata.rows,
+                                columns=champion_metadata.columns,
+                                seed=seed,
+                                games=args.extended_head_to_head_games,
+                                kind="head_to_head",
+                                opening_random_moves=args.opening_random_moves,
+                            )
+                            for seed in extended_head_to_head_seeds
+                        ],
+                        config=extended_policy,
+                    )
+                    promotion_evaluation_id = extended_batch["id"]
+                    extended_kwargs = dict(
+                        audit_service=service,
+                        evaluation_id=extended_batch["id"],
+                    )
+                extended_suites = _evaluate_head_to_head_suites(
+                    args,
+                    contender,
+                    champion_result,
+                    device,
+                    extended_head_to_head_seeds,
+                    args.extended_head_to_head_games,
+                    args.opening_random_moves,
+                    **extended_kwargs,
+                )
+                extended_aggregate = combine_evaluation_results(extended_suites)
+                passed = _passes_promotion(
+                    extended_suites,
+                    extended_policy["promotion_min_match_score"],
+                    extended_policy["promotion_min_suite_wins"],
+                )
+                challenge_record["extended"] = {
+                    "seeds": list(extended_head_to_head_seeds),
+                    "games_per_suite": args.extended_head_to_head_games,
+                    "total_games": extended_total_games,
+                    "suites": [
+                        _result_dict(result) for result in extended_suites
+                    ],
+                    "aggregate": _result_dict(extended_aggregate),
+                    "passed": passed,
+                }
+                challenge_record["passed"] = passed
+                promotion_policy = extended_policy
+                if service is not None:
+                    service.record_decision(
+                        attempt["id"],
+                        candidate_records[contender.path]["id"],
+                        stage="challenge",
+                        result="passed" if passed else "rejected",
+                        candidate_evaluation_id=extended_batch["id"],
+                        champion_evaluation_id=screen_batches[round_champion]["id"],
+                        policy=extended_policy,
+                    )
+                print(
+                    f"extended-promotion-gate episode={contender.metadata.episode} "
+                    f"suites={args.extended_head_to_head_suites} "
+                    f"games={extended_total_games} "
+                    f"match-score={extended_aggregate.overall.match_score:.4f} "
+                    f"passed={'yes' if passed else 'no'}",
+                    flush=True,
+                )
+            elif service is not None:
                 service.record_decision(
                     attempt["id"],
                     candidate_records[contender.path]["id"],
@@ -1037,22 +1238,8 @@ def _run_loop(args: argparse.Namespace, service) -> int:
                     champion_evaluation_id=screen_batches[round_champion]["id"],
                     policy=promotion_policy,
                 )
-            challenges.append(
-                {
-                    "path": str(contender.path),
-                    "episode": contender.metadata.episode,
-                    "suites": [_result_dict(result) for result in suites],
-                    "aggregate": _result_dict(aggregate),
-                    "suite_wins": suite_wins,
-                    "passed": passed,
-                }
-            )
-            print(
-                f"promotion-gate episode={contender.metadata.episode} "
-                f"suite-wins={suite_wins}/{args.head_to_head_suites} "
-                f"passed={'yes' if passed else 'no'}",
-                flush=True,
-            )
+
+            challenges.append(challenge_record)
             if passed:
                 promoted = contender
                 if service is not None:
@@ -1061,7 +1248,7 @@ def _run_loop(args: argparse.Namespace, service) -> int:
                         candidate_records[contender.path]["id"],
                         attempt_id=attempt["id"],
                         expected_assignment_id=assignment["id"],
-                        candidate_evaluation_id=challenge_batch["id"],
+                        candidate_evaluation_id=promotion_evaluation_id,
                         champion_evaluation_id=screen_batches[round_champion]["id"],
                         policy=promotion_policy,
                     )
@@ -1078,12 +1265,14 @@ def _run_loop(args: argparse.Namespace, service) -> int:
 
         summary["head_to_head"] = challenges
         if promoted is None:
+            consecutive_failures += 1
             summary["promoted"] = None
             summary["stop_reason"] = (
                 "no_random_screen_improvement"
                 if not contenders
                 else "no_head_to_head_challenger_passed"
             )
+            summary["consecutive_failures"] = consecutive_failures
             if service is not None:
                 service.update_attempt(
                     attempt["id"],
@@ -1095,12 +1284,24 @@ def _run_loop(args: argparse.Namespace, service) -> int:
                     stop_reason=summary["stop_reason"],
                 )
             _write_summary(round_dir / "results.json", summary)
+            rounds_attempted += 1
+            round_number += 1
+            if consecutive_failures >= args.max_consecutive_failures:
+                print(
+                    f"champion unchanged at episode={champion_metadata.episode}; "
+                    f"stopping after {consecutive_failures} consecutive "
+                    f"unsuccessful rounds ({summary['stop_reason']})",
+                    flush=True,
+                )
+                return 0
             print(
                 f"champion unchanged at episode={champion_metadata.episode}; "
-                f"stopping ({summary['stop_reason']})",
+                f"consecutive-failures={consecutive_failures}/"
+                f"{args.max_consecutive_failures}; restarting with a new seed "
+                f"({summary['stop_reason']})",
                 flush=True,
             )
-            return 0
+            continue
 
         if service is not None:
             service.export_checkpoint(
@@ -1114,13 +1315,16 @@ def _run_loop(args: argparse.Namespace, service) -> int:
             "champion_path": str(args.champion),
         }
         summary["stop_reason"] = None
+        summary["consecutive_failures"] = 0
         _write_summary(round_dir / "results.json", summary)
         print(
             f"promoted episode={promoted.metadata.episode} to {args.champion}",
             flush=True,
         )
 
-        rounds_completed += 1
+        consecutive_failures = 0
+        promotions_completed += 1
+        rounds_attempted += 1
         round_number += 1
 
     print(f"reached --max-rounds={args.max_rounds}; stopping", flush=True)
