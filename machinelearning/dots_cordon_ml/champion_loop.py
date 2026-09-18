@@ -121,6 +121,15 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
         help="optimizer learning rate used for each fine-tuning round",
     )
     parser.add_argument(
+        "--learning-starts",
+        type=int,
+        default=2_000,
+        help=(
+            "replay transitions collected before optimization starts in each "
+            "fine-tuning round"
+        ),
+    )
+    parser.add_argument(
         "--terminal-win-bonus",
         type=float,
         default=5.0,
@@ -213,8 +222,10 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
     for name in positive:
         if getattr(args, name) <= 0:
             parser.error(f"--{name.replace('_', '-')} must be positive")
-    if args.max_rounds < 0 or args.max_turns < 0:
-        parser.error("--max-rounds and --max-turns must be non-negative")
+    if args.max_rounds < 0 or args.max_turns < 0 or args.learning_starts < 0:
+        parser.error(
+            "--max-rounds, --max-turns, and --learning-starts must be non-negative"
+        )
     if (
         args.screen_seed < 0
         or args.head_to_head_seed < 0
@@ -362,6 +373,8 @@ def _run_training_round(
         str(args.random_opponent_probability),
         "--learning-rate",
         str(args.learning_rate),
+        "--learning-starts",
+        str(args.learning_starts),
         "--terminal-win-bonus",
         str(args.terminal_win_bonus),
         "--log-every",
@@ -930,6 +943,7 @@ def _run_loop(args: argparse.Namespace, service) -> int:
             "candidate_count": args.candidate_count,
             "random_opponent_probability": args.random_opponent_probability,
             "learning_rate": args.learning_rate,
+            "learning_starts": args.learning_starts,
             "terminal_win_bonus": args.terminal_win_bonus,
             "training_opening_random_moves": args.training_opening_random_moves,
             "candidate_interval": args.candidate_interval,

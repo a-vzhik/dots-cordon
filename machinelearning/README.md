@@ -433,8 +433,10 @@ the training games use a uniform-random opponent and 80% use the round's frozen
 champion; the learner alternates seats. Frozen-champion games begin with four
 random moves to expose the learner to the same opening diversity used by the
 head-to-head gate. Fine-tuning uses a `1e-4` learning rate and a terminal
-win/loss bonus of `5`. Use `--training-opponent self-play` to retain the older
-random/self-play mixture instead.
+win/loss bonus of `5`. Each round normally waits for 2,000 fresh replay
+transitions before optimizing; use `--learning-starts` to shorten that warm-up
+for short fine-tuning rounds. Use `--training-opponent self-play` to retain the
+older random/self-play mixture instead.
 
 The champion and all three candidates are screened on three shared, fresh
 1,000-game random-opponent suites. Candidates whose aggregate match score is

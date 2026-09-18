@@ -56,6 +56,7 @@ def test_defaults_describe_three_candidate_fine_tuning_round() -> None:
     assert args.training_opponent == "frozen"
     assert args.random_opponent_probability == 0.20
     assert args.learning_rate == 1e-4
+    assert args.learning_starts == 2_000
     assert args.terminal_win_bonus == 5.0
     assert args.training_opening_random_moves == 4
     assert args.screen_max_regression == 0.003
@@ -100,7 +101,7 @@ def test_training_round_forwards_fine_tuning_regime(
         return 0
 
     monkeypatch.setattr(champion_loop.train, "run", fake_run)
-    args = parse_args(["--no-audit"])
+    args = parse_args(["--no-audit", "--learning-starts", "512"])
     metadata = CheckpointMetadata(7, 7, 64, 3, 12_250, 0, 0)
 
     candidates = _run_training_round(
@@ -114,6 +115,7 @@ def test_training_round_forwards_fine_tuning_regime(
     assert captured is not None
     assert captured.episodes == 13_000
     assert captured.learning_rate == 1e-4
+    assert captured.learning_starts == 512
     assert captured.terminal_win_bonus == 5.0
     assert captured.random_opponent_probability == 0.20
     assert captured.frozen_opening_random_moves == 4
