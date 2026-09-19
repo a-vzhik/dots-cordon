@@ -1,8 +1,6 @@
 package grpcserver
 
 import (
-	"sync"
-
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
 	"github.com/a-vzhik/dots-cordon/engine"
 	"google.golang.org/grpc/codes"
@@ -10,7 +8,7 @@ import (
 )
 
 type gameSession struct {
-	mu sync.Mutex
+	Lock
 
 	id              string
 	rows            uint8
@@ -31,16 +29,23 @@ func newGameSession(
 	columns uint8,
 	maxTurns uint32,
 	recorder RecorderFactory,
-) *gameSession {
+) (*gameSession, error) {
 	session := &gameSession{
+		Lock:            &inProcessLock{},
 		id:              id,
 		rows:            rows,
 		columns:         columns,
 		maxTurns:        maxTurns,
 		recorderFactory: recorder,
 	}
-	session.resetLocked()
-	return session
+	if !session.TryAcquireLock() {
+		return nil, ErrSessionBusy
+	}
+	defer session.ReleaseLock()
+	if err := session.reset(); err != nil {
+		return nil, err
+	}
+	return session, nil
 }
 
 func (s *Service) getSession(gameID string) (*gameSession, error) {
@@ -57,8 +62,11 @@ func (s *Service) getSession(gameID string) (*gameSession, error) {
 	return session, nil
 }
 
-// moveLocked is shared by live play and isolated search simulations.
-func (session *gameSession) moveLocked(position *dotscordonv1.Coordinate) (*dotscordonv1.MakeMoveResponse, error) {
+// move is shared by live play and isolated search simulations.
+func (session *gameSession) move(position *dotscordonv1.Coordinate) (*dotscordonv1.MakeMoveResponse, error) {
+	if err := session.requireLock(); err != nil {
+		return nil, err
+	}
 	if position.GetRow() >= uint32(session.rows) || position.GetColumn() >= uint32(session.columns) {
 		return nil, status.Errorf(
 			codes.InvalidArgument,
@@ -91,13 +99,20 @@ func (session *gameSession) moveLocked(position *dotscordonv1.Coordinate) (*dots
 		session.termination = dotscordonv1.TerminationReason_TERMINATION_REASON_TURN_LIMIT
 	}
 
+	snapshot, err := session.snapshot()
+	if err != nil {
+		return nil, err
+	}
 	return &dotscordonv1.MakeMoveResponse{
-		Game:   session.snapshotLocked(),
+		Game:   snapshot,
 		Result: moveResultToProto(player, result),
 	}, nil
 }
 
-func (session *gameSession) resetLocked() {
+func (session *gameSession) reset() error {
+	if err := session.requireLock(); err != nil {
+		return err
+	}
 	recorder := engine.Recorder(engine.NoopGameRecorder{})
 	if session.recorderFactory != nil {
 		if configured := session.recorderFactory(session.id); configured != nil {
@@ -117,9 +132,13 @@ func (session *gameSession) resetLocked() {
 	session.current = 0
 	session.terminal = false
 	session.termination = dotscordonv1.TerminationReason_TERMINATION_REASON_UNSPECIFIED
+	return nil
 }
 
-func (session *gameSession) snapshotLocked() *dotscordonv1.GameState {
+func (session *gameSession) snapshot() (*dotscordonv1.GameState, error) {
+	if err := session.requireLock(); err != nil {
+		return nil, err
+	}
 	field := session.game.GameField
 	cells := make([]byte, 0, int(field.Width)*int(field.Height))
 	for _, row := range field.Dots {
@@ -143,5 +162,12 @@ func (session *gameSession) snapshotLocked() *dotscordonv1.GameState {
 		Turn:              session.turn,
 		Terminal:          session.terminal,
 		TerminationReason: session.termination,
+	}, nil
+}
+
+func (session *gameSession) requireLock() error {
+	if session.Lock == nil || !session.IsAcquired() {
+		return ErrLockNotAcquired
 	}
+	return nil
 }

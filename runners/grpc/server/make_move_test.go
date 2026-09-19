@@ -143,3 +143,23 @@ func TestConcurrentMovesFromSameObservationApplyOnlyOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint32(1), got.GetGame().GetTurn())
 }
+
+func TestMakeMoveRejectsBusySession(t *testing.T) {
+	service, session := newTestLockedSession(t)
+	request := &dotscordonv1.MakeMoveRequest{GameId: session.id, Position: &dotscordonv1.Coordinate{}}
+	response, err := service.MakeMove(context.Background(), request)
+	require.Nil(t, response)
+	require.ErrorIs(t, err, ErrSessionBusy)
+	require.True(t, session.IsAcquired(), "failed acquisition released another caller's lock")
+
+	stored, err := service.getSession(session.id)
+	require.NoError(t, err)
+	require.Same(t, session, stored)
+	require.False(t, session.deleted)
+	require.Zero(t, session.turn)
+
+	require.NoError(t, session.ReleaseLock())
+	_, err = service.MakeMove(context.Background(), request)
+	require.NoError(t, err)
+	require.False(t, session.IsAcquired())
+}

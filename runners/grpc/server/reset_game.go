@@ -21,12 +21,20 @@ func (s *Service) ResetGame(
 		return nil, err
 	}
 
-	session.mu.Lock()
-	defer session.mu.Unlock()
+	if !session.TryAcquireLock() {
+		return nil, ErrSessionBusy
+	}
+	defer session.ReleaseLock()
 	if session.deleted {
 		return nil, gameNotFound(request.GetGameId())
 	}
 
-	session.resetLocked()
-	return &dotscordonv1.ResetGameResponse{Game: session.snapshotLocked()}, nil
+	if err := session.reset(); err != nil {
+		return nil, err
+	}
+	snapshot, err := session.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	return &dotscordonv1.ResetGameResponse{Game: snapshot}, nil
 }

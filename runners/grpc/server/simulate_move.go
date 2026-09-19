@@ -34,7 +34,14 @@ func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.Simula
 	if state.Terminal || (request.MaxTurns > 0 && state.Turn >= request.MaxTurns) {
 		return nil, status.Error(codes.FailedPrecondition, "cannot simulate a terminal position")
 	}
-	session := newGameSession("", uint8(board.Rows), uint8(board.Columns), request.MaxTurns, nil)
+	session, err := newGameSession("", uint8(board.Rows), uint8(board.Columns), request.MaxTurns, nil)
+	if err != nil {
+		return nil, err
+	}
+	if !session.TryAcquireLock() {
+		return nil, ErrSessionBusy
+	}
+	defer session.ReleaseLock()
 	placed := uint32(0)
 	for index, value := range board.Cells {
 		if value > byte(dotscordonv1.Cell_CELL_DEAD_PLAYER_1) {
@@ -59,5 +66,5 @@ func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.Simula
 	session.current = engine.PlayerIndex(state.CurrentPlayer)
 	session.game.Players[0].Score = state.Scores[0]
 	session.game.Players[1].Score = state.Scores[1]
-	return session.moveLocked(request.Position)
+	return session.move(request.Position)
 }

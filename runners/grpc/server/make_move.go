@@ -24,8 +24,10 @@ func (s *Service) MakeMove(
 		return nil, err
 	}
 
-	session.mu.Lock()
-	defer session.mu.Unlock()
+	if !session.TryAcquireLock() {
+		return nil, ErrSessionBusy
+	}
+	defer session.ReleaseLock()
 	if session.deleted {
 		return nil, gameNotFound(request.GetGameId())
 	}
@@ -41,5 +43,5 @@ func (s *Service) MakeMove(
 		)
 	}
 
-	return session.moveLocked(request.GetPosition())
+	return session.move(request.GetPosition())
 }

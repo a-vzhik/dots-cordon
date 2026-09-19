@@ -20,19 +20,19 @@ func (s *Service) DeleteGame(
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	session := s.games[request.GetGameId()]
 	if session == nil {
-		s.mu.Unlock()
 		return nil, gameNotFound(request.GetGameId())
 	}
-	delete(s.games, request.GetGameId())
-
 	// Holding the store lock while marking the session deleted makes deletion
 	// linearizable with a concurrent getSession call.
-	session.mu.Lock()
+	if !session.TryAcquireLock() {
+		return nil, ErrSessionBusy
+	}
+	defer session.ReleaseLock()
 	session.deleted = true
-	session.mu.Unlock()
-	s.mu.Unlock()
+	delete(s.games, request.GetGameId())
 
 	return &dotscordonv1.DeleteGameResponse{}, nil
 }

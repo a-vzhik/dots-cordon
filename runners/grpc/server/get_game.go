@@ -21,11 +21,17 @@ func (s *Service) GetGame(
 		return nil, err
 	}
 
-	session.mu.Lock()
-	defer session.mu.Unlock()
+	if !session.TryAcquireLock() {
+		return nil, ErrSessionBusy
+	}
+	defer session.ReleaseLock()
 	if session.deleted {
 		return nil, gameNotFound(request.GetGameId())
 	}
 
-	return &dotscordonv1.GetGameResponse{Game: session.snapshotLocked()}, nil
+	snapshot, err := session.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	return &dotscordonv1.GetGameResponse{Game: snapshot}, nil
 }

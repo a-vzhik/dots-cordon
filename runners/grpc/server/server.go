@@ -8,8 +8,8 @@ import (
 )
 
 // Service stores independent game sessions in memory. It is safe for
-// concurrent use; moves within one game are serialized while separate games
-// can advance in parallel.
+// concurrent use; overlapping operations on a busy session fail immediately,
+// while separate games can advance in parallel.
 type Service struct {
 	dotscordonv1.UnimplementedGameServiceServer
 

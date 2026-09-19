@@ -75,3 +75,23 @@ func TestTerminationReasonAndReset(t *testing.T) {
 		reset.GetGame().GetTerminationReason(),
 	)
 }
+
+func TestResetGameRejectsBusySession(t *testing.T) {
+	service, session := newTestLockedSession(t)
+	request := &dotscordonv1.ResetGameRequest{GameId: session.id}
+	response, err := service.ResetGame(context.Background(), request)
+	require.Nil(t, response)
+	require.ErrorIs(t, err, ErrSessionBusy)
+	require.True(t, session.IsAcquired(), "failed acquisition released another caller's lock")
+
+	stored, err := service.getSession(session.id)
+	require.NoError(t, err)
+	require.Same(t, session, stored)
+	require.False(t, session.deleted)
+	require.Zero(t, session.turn)
+
+	require.NoError(t, session.ReleaseLock())
+	_, err = service.ResetGame(context.Background(), request)
+	require.NoError(t, err)
+	require.False(t, session.IsAcquired())
+}

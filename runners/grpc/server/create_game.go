@@ -52,14 +52,25 @@ func (s *Service) CreateGame(
 		}
 	}
 
-	session := newGameSession(
+	session, err := newGameSession(
 		gameID,
 		uint8(request.GetRows()),
 		uint8(request.GetColumns()),
 		request.GetMaxTurns(),
 		s.recorderFactory,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if !session.TryAcquireLock() {
+		return nil, ErrSessionBusy
+	}
+	defer session.ReleaseLock()
+	snapshot, err := session.snapshot()
+	if err != nil {
+		return nil, err
+	}
 	s.games[gameID] = session
 
-	return &dotscordonv1.CreateGameResponse{Game: session.snapshotLocked()}, nil
+	return &dotscordonv1.CreateGameResponse{Game: snapshot}, nil
 }
