@@ -16,11 +16,15 @@ func (s *Service) GetGame(
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
-	record, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
+	lock, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
 	if err != nil {
 		return nil, err
 	}
-	defer record.lock.ReleaseLock()
+	defer lock.Release()
+	record, err := s.getGame(request.GetGameId())
+	if err != nil {
+		return nil, err
+	}
 	return &dotscordonv1.GetGameResponse{
 		Game: gameStateToProto(request.GetGameId(), record.game, record.turn, record.maxTurns),
 	}, nil

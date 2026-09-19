@@ -2,48 +2,62 @@ package grpcserver
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-// inProcessLock must not be copied after first use. Its zero value is unlocked.
+// inProcessLock must not be copied after first use. Its zero value is ready to use.
 type inProcessLock struct {
-	mu       sync.Mutex
-	acquired atomic.Bool
+	locks sync.Map // game ID -> *lockEntry; contains only active acquisitions
 }
 
-func (lock *inProcessLock) TryAcquireLock(timeout time.Duration) bool {
+type lockEntry struct {
+	released chan struct{}
+}
+
+type acquiredLock struct {
+	manager *inProcessLock
+	gameID  string
+	entry   *lockEntry
+}
+
+func (manager *inProcessLock) TryAcquireLock(gameID string, timeout time.Duration) (AcquiredLock, error) {
 	deadline := time.Now().Add(timeout)
-	if lock.mu.TryLock() {
-		lock.acquired.Store(true)
-		return true
+	entry := &lockEntry{released: make(chan struct{})}
+	actual, loaded := manager.locks.LoadOrStore(gameID, entry)
+	if !loaded {
+		return &acquiredLock{manager: manager, gameID: gameID, entry: entry}, nil
+	}
+	if timeout <= 0 {
+		return nil, ErrLockTimeout
 	}
 
-	// Mutex acquisition cannot be canceled. Retry in this goroutine so an
-	// expired attempt cannot acquire the lock later and leave it held.
+	timer := time.NewTimer(time.Until(deadline))
+	defer timer.Stop()
 	for {
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return false
-		}
-		time.Sleep(min(remaining, time.Millisecond))
-		if time.Now().Before(deadline) && lock.mu.TryLock() {
-			lock.acquired.Store(true)
-			return true
+		select {
+		case <-actual.(*lockEntry).released:
+			// All waiters retry against the map; no waiter can acquire a
+			// detached entry. Keep the original deadline across retries.
+			if !time.Now().Before(deadline) {
+				return nil, ErrLockTimeout
+			}
+			actual, loaded = manager.locks.LoadOrStore(gameID, entry)
+			if !loaded {
+				return &acquiredLock{manager: manager, gameID: gameID, entry: entry}, nil
+			}
+		case <-timer.C:
+			return nil, ErrLockTimeout
 		}
 	}
 }
 
-func (lock *inProcessLock) ReleaseLock() error {
-	if !lock.acquired.Swap(false) {
+func (lock *acquiredLock) Release() error {
+	if !lock.manager.locks.CompareAndDelete(lock.gameID, lock.entry) {
 		return ErrLockNotAcquired
 	}
-	lock.mu.Unlock()
+	close(lock.entry.released)
 	return nil
 }
 
-func (lock *inProcessLock) IsAcquired() bool {
-	return lock.acquired.Load()
-}
-
 var _ Lock = (*inProcessLock)(nil)
+var _ AcquiredLock = (*acquiredLock)(nil)

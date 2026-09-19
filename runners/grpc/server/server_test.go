@@ -46,25 +46,21 @@ func TestTryLockGameReturnsErrorOnTimeout(t *testing.T) {
 	service := NewService(1)
 	created, err := service.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{Rows: 2, Columns: 2})
 	require.NoError(t, err)
-	record, err := service.tryLockGame(created.Game.GameId, 0)
+	lock, err := service.tryLockGame(created.Game.GameId, 0)
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		if record.lock.IsAcquired() {
-			require.NoError(t, record.lock.ReleaseLock())
-		}
-	})
+	defer lock.Release()
 
 	blocked, err := service.tryLockGame(created.Game.GameId, 20*time.Millisecond)
 	require.Nil(t, blocked)
 	require.ErrorIs(t, err, ErrLockTimeout)
-	require.True(t, record.lock.IsAcquired())
+	record, err := service.getGame(created.Game.GameId)
+	require.NoError(t, err)
 	require.Zero(t, record.turn)
 
-	require.NoError(t, record.lock.ReleaseLock())
+	require.NoError(t, lock.Release())
 	retried, err := service.tryLockGame(created.Game.GameId, time.Second)
 	require.NoError(t, err)
-	require.Same(t, record, retried)
-	require.NoError(t, retried.lock.ReleaseLock())
+	require.NoError(t, retried.Release())
 }
 
 func newTestClient(t *testing.T, maxGames int) dotscordonv1.GameServiceClient {

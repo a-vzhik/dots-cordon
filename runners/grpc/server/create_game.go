@@ -30,38 +30,55 @@ func (s *Service) CreateGame(
 		return nil, err
 	}
 
-	gameID, err := randomGameID()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "generate game ID: %v", err)
+	if !s.reserveGameSlot() {
+		return nil, status.Errorf(codes.ResourceExhausted, "concurrent game limit of %d reached", s.maxGames)
 	}
+	created := false
+	defer func() {
+		if !created {
+			s.gameCount.Add(-1)
+		}
+	}()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.maxGames > 0 && len(s.games) >= s.maxGames {
-		return nil, status.Errorf(
-			codes.ResourceExhausted,
-			"concurrent game limit of %d reached",
-			s.maxGames,
-		)
-	}
-
-	for s.games[gameID] != nil {
-		gameID, err = randomGameID()
+	for {
+		gameID, err := randomGameID()
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "generate game ID: %v", err)
 		}
-	}
+		lock, err := s.tryLockGame(gameID, gameLockTimeout)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := s.games.Load(gameID); exists {
+			lock.Release()
+			continue
+		}
+		defer lock.Release()
 
-	record := &gameRecord{
-		lock:     &inProcessLock{},
-		game:     s.newGame(gameID, uint8(request.GetRows()), uint8(request.GetColumns())),
-		maxTurns: request.GetMaxTurns(),
+		record := &gameRecord{
+			game:     s.newGame(gameID, uint8(request.GetRows()), uint8(request.GetColumns())),
+			maxTurns: request.GetMaxTurns(),
+		}
+		s.games.Store(gameID, record)
+		created = true
+		return &dotscordonv1.CreateGameResponse{
+			Game: gameStateToProto(gameID, record.game, record.turn, record.maxTurns),
+		}, nil
 	}
-	s.games[gameID] = record
-	return &dotscordonv1.CreateGameResponse{
-		Game: gameStateToProto(gameID, record.game, record.turn, record.maxTurns),
-	}, nil
+}
+
+// reserveGameSlot enforces the limit across simultaneous creations without a
+// global map lock. Failed creations return their reservation in CreateGame.
+func (s *Service) reserveGameSlot() bool {
+	for {
+		count := s.gameCount.Load()
+		if s.maxGames > 0 && count >= int64(s.maxGames) {
+			return false
+		}
+		if s.gameCount.CompareAndSwap(count, count+1) {
+			return true
+		}
+	}
 }
 
 func (s *Service) newGame(gameID string, rows, columns uint8) *engine.Game {

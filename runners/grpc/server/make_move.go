@@ -20,11 +20,15 @@ func (s *Service) MakeMove(
 		return nil, status.Error(codes.InvalidArgument, "position is required")
 	}
 
-	record, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
+	lock, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
 	if err != nil {
 		return nil, err
 	}
-	defer record.lock.ReleaseLock()
+	defer lock.Release()
+	record, err := s.getGame(request.GetGameId())
+	if err != nil {
+		return nil, err
+	}
 	if gameTerminationReason(record.game, record.turn, record.maxTurns) != dotscordonv1.TerminationReason_TERMINATION_REASON_UNSPECIFIED {
 		return nil, status.Error(codes.FailedPrecondition, "game is terminal; reset it before moving")
 	}

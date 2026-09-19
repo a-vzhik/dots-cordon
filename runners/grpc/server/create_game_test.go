@@ -3,6 +3,7 @@ package grpcserver
 import (
 	"context"
 	"testing"
+	"time"
 
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
 	"github.com/stretchr/testify/assert"
@@ -28,6 +29,62 @@ func TestCreateGameInitialState(t *testing.T) {
 	assert.Equal(t, []uint32{0, 0}, created.GetGame().GetScores())
 	assert.Zero(t, created.GetGame().GetTurn())
 	assert.Zero(t, created.GetGame().GetCurrentPlayer())
+}
+
+func TestConcurrentCreateGameHonorsLimit(t *testing.T) {
+	const limit = 3
+	const attempts = 16
+	service := NewService(limit)
+	for range 2 {
+		results := make(chan testCallResult[*dotscordonv1.CreateGameResponse], attempts)
+		start := make(chan struct{})
+		for range attempts {
+			go func() {
+				<-start
+				response, err := service.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{Rows: 2, Columns: 2})
+				results <- testCallResult[*dotscordonv1.CreateGameResponse]{response: response, err: err}
+			}()
+		}
+		close(start)
+		var gameIDs []string
+		for range attempts {
+			result := <-results
+			if result.err == nil {
+				gameIDs = append(gameIDs, result.response.Game.GameId)
+			} else {
+				require.Equal(t, codes.ResourceExhausted, status.Code(result.err))
+			}
+		}
+		require.Len(t, gameIDs, limit)
+		deletions := make(chan error, limit)
+		for _, gameID := range gameIDs {
+			go func() {
+				_, err := service.DeleteGame(context.Background(), &dotscordonv1.DeleteGameRequest{GameId: gameID})
+				deletions <- err
+			}()
+		}
+		for range limit {
+			require.NoError(t, <-deletions)
+		}
+	}
+}
+
+func TestFailedCreateReturnsReservedSlot(t *testing.T) {
+	service := NewService(1)
+	service.lock = unavailableLock{}
+	request := &dotscordonv1.CreateGameRequest{Rows: 2, Columns: 2}
+	_, err := service.CreateGame(context.Background(), request)
+	require.ErrorIs(t, err, ErrLockTimeout)
+
+	service.lock = &inProcessLock{}
+	_, err = service.CreateGame(context.Background(), request)
+	require.NoError(t, err)
+}
+
+type unavailableLock struct{}
+
+func (unavailableLock) TryAcquireLock(string, time.Duration) (AcquiredLock, error) {
+	return nil, ErrLockTimeout
 }
 
 func TestCreateGameValidatesDimensionsAndLimit(t *testing.T) {

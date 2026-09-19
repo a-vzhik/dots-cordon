@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
@@ -18,8 +19,9 @@ const gameLockTimeout = 5 * time.Second
 type Service struct {
 	dotscordonv1.UnimplementedGameServiceServer
 
-	mu              sync.RWMutex
-	games           map[string]*gameRecord
+	lock            Lock
+	games           sync.Map     // game ID -> *gameRecord
+	gameCount       atomic.Int64 // includes reserved creation slots
 	maxGames        int
 	recorderFactory RecorderFactory
 }
@@ -44,7 +46,7 @@ func WithRecorderFactory(factory RecorderFactory) Option {
 // concurrent-game limit.
 func NewService(maxGames int, options ...Option) *Service {
 	service := &Service{
-		games:    make(map[string]*gameRecord),
+		lock:     &inProcessLock{},
 		maxGames: maxGames,
 	}
 	for _, option := range options {
@@ -55,36 +57,28 @@ func NewService(maxGames int, options ...Option) *Service {
 
 var _ dotscordonv1.GameServiceServer = (*Service)(nil)
 
-// gameRecord is server storage, with no gameplay or lifecycle methods.
-// lock protects the game and its metadata; Service.mu protects the games map.
+// gameRecord contains only game state and server metadata. Every access is
+// protected by the server's keyed lock, acquired before loading from games.
 type gameRecord struct {
-	lock     Lock
 	game     *engine.Game
 	turn     uint32
 	maxTurns uint32
-	deleted  bool
 }
 
-// tryLockGame waits up to timeout for exclusive access to a live game. On
-// success, the caller must release record.lock after response conversion.
-func (s *Service) tryLockGame(gameID string, timeout time.Duration) (*gameRecord, error) {
+// tryLockGame acquires exclusive access to an ID without reading game state.
+func (s *Service) tryLockGame(gameID string, timeout time.Duration) (AcquiredLock, error) {
 	if gameID == "" {
 		return nil, status.Error(codes.InvalidArgument, "game_id is required")
 	}
-	s.mu.RLock()
-	record := s.games[gameID]
-	s.mu.RUnlock()
-	if record == nil {
-		return nil, gameNotFound(gameID)
-	}
+	return s.lock.TryAcquireLock(gameID, timeout)
+}
 
-	// Never hold the map lock while waiting for an individual game.
-	if !record.lock.TryAcquireLock(timeout) {
-		return nil, ErrLockTimeout
-	}
-	if record.deleted {
-		record.lock.ReleaseLock()
+// getGame must be called while holding the lock for gameID. The lock must remain
+// held while the returned state is accessed, including response conversion.
+func (s *Service) getGame(gameID string) (*gameRecord, error) {
+	record, ok := s.games.Load(gameID)
+	if !ok {
 		return nil, gameNotFound(gameID)
 	}
-	return record, nil
+	return record.(*gameRecord), nil
 }

@@ -2,7 +2,9 @@ package grpcserver
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +28,55 @@ func TestDeleteGameRemovesGame(t *testing.T) {
 
 	_, err = client.GetGame(context.Background(), &dotscordonv1.GetGameRequest{GameId: gameID})
 	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestQueuedGetObservesDeletion(t *testing.T) {
+	service := NewService(1)
+	created, err := service.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{Rows: 2, Columns: 2})
+	require.NoError(t, err)
+	gate := &pauseFirstAcquisition{
+		manager:  service.lock,
+		acquired: make(chan struct{}),
+		proceed:  make(chan struct{}),
+	}
+	service.lock = gate
+	var resumeOnce sync.Once
+	resume := func() { resumeOnce.Do(func() { close(gate.proceed) }) }
+	t.Cleanup(resume)
+
+	deletion := startTestCall(func() (*dotscordonv1.DeleteGameResponse, error) {
+		return service.DeleteGame(context.Background(), &dotscordonv1.DeleteGameRequest{GameId: created.Game.GameId})
+	})
+	<-gate.acquired // Delete owns the lock, but has not removed the row yet.
+	read := startTestCall(func() (*dotscordonv1.GetGameResponse, error) {
+		return service.GetGame(context.Background(), &dotscordonv1.GetGameRequest{GameId: created.Game.GameId})
+	})
+	requireCallPending(t, read)
+	resume()
+	require.NoError(t, (<-deletion).err)
+	result := <-read
+	require.Nil(t, result.response)
+	require.Equal(t, codes.NotFound, status.Code(result.err))
+	requireLockMapEmpty(t, gate.manager.(*inProcessLock))
+}
+
+type pauseFirstAcquisition struct {
+	manager  Lock
+	once     sync.Once
+	acquired chan struct{}
+	proceed  chan struct{}
+}
+
+func (gate *pauseFirstAcquisition) TryAcquireLock(gameID string, timeout time.Duration) (AcquiredLock, error) {
+	lock, err := gate.manager.TryAcquireLock(gameID, timeout)
+	if err != nil {
+		return nil, err
+	}
+	gate.once.Do(func() {
+		close(gate.acquired)
+		<-gate.proceed
+	})
+	return lock, nil
 }
 
 func TestDeleteGameWaitsForInFlightMove(t *testing.T) {

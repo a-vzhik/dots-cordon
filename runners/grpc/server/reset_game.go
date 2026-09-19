@@ -16,11 +16,15 @@ func (s *Service) ResetGame(
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
-	record, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
+	lock, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
 	if err != nil {
 		return nil, err
 	}
-	defer record.lock.ReleaseLock()
+	defer lock.Release()
+	record, err := s.getGame(request.GetGameId())
+	if err != nil {
+		return nil, err
+	}
 	field := record.game.GameField
 	record.game = s.newGame(request.GetGameId(), field.Height, field.Width)
 	record.turn = 0

@@ -15,17 +15,17 @@ func (s *Service) DeleteGame(
 	if request == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	record, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
+	lock, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
 	if err != nil {
 		return nil, err
 	}
-	defer record.lock.ReleaseLock()
+	defer lock.Release()
+	_, err = s.getGame(request.GetGameId())
+	if err != nil {
+		return nil, err
+	}
 
-	// Requests that already found this record must observe deletion when they
-	// acquire its lock. The map lock is held only for removal, never waiting.
-	record.deleted = true
-	s.mu.Lock()
-	delete(s.games, request.GetGameId())
-	s.mu.Unlock()
+	s.games.Delete(request.GetGameId())
+	s.gameCount.Add(-1)
 	return &dotscordonv1.DeleteGameResponse{}, nil
 }
