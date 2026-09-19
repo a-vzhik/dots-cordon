@@ -14,7 +14,6 @@ from .audit import AuditService
 from .audit.database import PromotionConflict
 from .audit.integration import (
     close_audit,
-    evaluation_definition,
     resolve_checkpoint_reference,
 )
 from .checkpoint import read_checkpoint
@@ -71,29 +70,7 @@ def candidates_for_run(service, source_id):
     return [candidates[key] for key in sorted(candidates)]
 
 
-def suite_definitions(args, metadata, seeds, games, *, head_to_head=False):
-    return [
-        {
-            **evaluation_definition(
-                args,
-                rows=metadata.rows,
-                columns=metadata.columns,
-                seed=seed,
-                games=games,
-                kind="head_to_head" if head_to_head else "random",
-                opening_random_moves=args.opening_random_moves if head_to_head else 0,
-            ),
-            "evaluator_version": "greedy-checkpoint-v2",
-            # Same screening definition for DQN and policy checkpoints: each uses
-            # its native greedy head, never tree search. Architecture lives on the checkpoint.
-            "subject_policy": "greedy_checkpoint",
-            "opponent_policy": "greedy_checkpoint"
-            if head_to_head
-            else "uniform_random",
-        }
-        for seed in seeds
-    ]
-
+suite_definitions = evaluation.suite_definitions
 
 def _run_candidate(args, service, experiment, attempt, candidate, assignment, device):
     candidate_path = resolve_checkpoint_reference(

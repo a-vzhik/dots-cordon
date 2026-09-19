@@ -371,3 +371,72 @@ updated server to include real-engine search integration tests. Go simulation
 tests run with `go test -timeout=10s ./runners/grpc/server` from the repository
 root. They compare simulated and actual moves through captures, dead territory,
 and turn-limit termination, and verify that search leaves the live game intact.
+
+### Bounded evaluation jobs
+
+`dots-cordon-evaluation --request evaluation.json --result evaluation-result.json
+--database-url sqlite:////absolute/path/audit.sqlite3` runs one policy-only stage.
+It plays no training games, makes no gate decisions, and never changes the champion.
+Use the same `contest` object for screening, initial challenge and extended challenge,
+and a distinct stable `operation_id` for each stage:
+
+```json
+{
+  "version": 1,
+  "operation_id": "round-100-screen",
+  "experiment": "larger-board",
+  "contest": {
+    "id": "round-100-contest",
+    "candidate_checkpoint_id": "IMMUTABLE_LEARNER_CHECKPOINT_ID",
+    "expected_assignment_id": "CAPTURED_CHAMPION_ASSIGNMENT_ID",
+    "champion_checkpoint_id": "CAPTURED_CHAMPION_CHECKPOINT_ID"
+  },
+  "stage": "screening",
+  "config": {
+    "server": "127.0.0.1:50051",
+    "rows": 15,
+    "columns": 15,
+    "max_turns": 0,
+    "mode": "policy",
+    "device": "cpu",
+    "games": 1000,
+    "suites": 3,
+    "seed": 30000001,
+    "opening_random_moves": 0,
+    "paired_seats": true,
+    "evaluation_workers": 4,
+    "rpc_timeout": 10.0
+  }
+}
+```
+
+All configuration fields are required. `games` is the even number of games per
+suite, split evenly between seats. `seed` is the explicit base for durable seed
+reservation; the result records the actual reserved suite seeds, exact game seeds,
+seat schedules and openings. Screening compares both captured participants against
+random on identical suites and requires zero random opening moves. For an initial
+challenge, use `stage: "head_to_head"`, a new operation ID, seed `40000001` and
+`opening_random_moves: 4`. For extended validation, use
+`stage: "extended_head_to_head"`, another operation ID, seed `50000001` and the
+chosen larger suite count. The unit does not decide whether extended validation is
+warranted. Custom overlapping seed bases still receive fresh, disjoint suites.
+MCTS evidence is rejected here; use `dots-cordon-search-evaluate` for diagnostics.
+
+The contest creates one audit attempt and one candidate record pointing to the same
+immutable model bytes as the original learner checkpoint. Every stage shares that
+candidate and its captured incumbent assignment. The result distinguishes
+`source_checkpoint_id` (continue training from this learner) from
+`candidate_checkpoint_id` (use this contest-owned candidate for promotion evidence).
+`evaluation_ids` are ordered champion then candidate for screening and contain one
+candidate-versus-champion batch for either challenge stage. Results include model
+kinds, full definitions, W/D/L, match score (draws count half), and per-seat/per-suite
+statistics. `evaluation.batch_results` reconstructs complete audit results for the
+existing shared gate functions.
+
+The audit database owns operation results; the JSON file is an atomic acknowledgement.
+Repeat exactly the same operation request to recover a lost result file or a process
+that died after all suites committed. Completed games are not replayed in that case.
+An interrupted or failed partial job retains its batches and retries the whole job
+with fresh reserved suites, recording replacement batch IDs. Local locks prevent
+simultaneous delivery of one operation or concurrent stages within one contest.
+SIGINT/SIGTERM mark interrupted evidence; retry the same request after recovery.
