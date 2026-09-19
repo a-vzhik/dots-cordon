@@ -31,8 +31,8 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// GameService owns in-memory game sessions. A client creates a session, sends
-// moves in turn order, and deletes or resets the session when an episode ends.
+// GameService owns in-memory games. Each move identifies its player explicitly.
+// Requests for the same game are serialized before checking player and position.
 type GameServiceClient interface {
 	CreateGame(ctx context.Context, in *CreateGameRequest, opts ...grpc.CallOption) (*CreateGameResponse, error)
 	GetGame(ctx context.Context, in *GetGameRequest, opts ...grpc.CallOption) (*GetGameResponse, error)
@@ -115,8 +115,8 @@ func (c *gameServiceClient) SimulateMove(ctx context.Context, in *SimulateMoveRe
 // All implementations must embed UnimplementedGameServiceServer
 // for forward compatibility.
 //
-// GameService owns in-memory game sessions. A client creates a session, sends
-// moves in turn order, and deletes or resets the session when an episode ends.
+// GameService owns in-memory games. Each move identifies its player explicitly.
+// Requests for the same game are serialized before checking player and position.
 type GameServiceServer interface {
 	CreateGame(context.Context, *CreateGameRequest) (*CreateGameResponse, error)
 	GetGame(context.Context, *GetGameRequest) (*GetGameResponse, error)

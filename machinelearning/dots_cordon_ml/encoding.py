@@ -24,7 +24,7 @@ def encode_state(game: game_pb2.GameState, player: int | None = None) -> np.ndar
     network control both sides during self-play.
     """
     if player is None:
-        player = game.current_player
+        player = game.next_turn_by
     if player not in (0, 1):
         raise ValueError(f"player must be 0 or 1, got {player}")
 
@@ -42,7 +42,7 @@ def encode_state(game: game_pb2.GameState, player: int | None = None) -> np.ndar
     opponent_score = game.scores[1 - player] if len(game.scores) > 1 - player else 0
     board_size = max(1, board.rows * board.columns)
     encoded[3].fill((own_score - opponent_score) / board_size)
-    encoded[4].fill(min(game.turn / board_size, 1.0))
+    encoded[4].fill(min(move_count(game) / board_size, 1.0))
     return encoded
 
 
@@ -57,3 +57,15 @@ def _cells(game: game_pb2.GameState) -> np.ndarray:
         )
     return cells.reshape(board.rows, board.columns)
 
+
+def move_count(game: game_pb2.GameState) -> int:
+    """Count placed dots, including captured players' dots but not dead empty cells."""
+    cells = _cells(game)
+    return int(
+        np.count_nonzero(
+            (cells == game_pb2.CELL_PLAYER_0)
+            | (cells == game_pb2.CELL_PLAYER_1)
+            | (cells == game_pb2.CELL_DEAD_PLAYER_0)
+            | (cells == game_pb2.CELL_DEAD_PLAYER_1)
+        )
+    )

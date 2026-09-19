@@ -21,7 +21,6 @@ from dots_cordon_ml.self_play import (
 def state(
     cells: list[int],
     *,
-    turn: int,
     player: int,
     scores: tuple[int, int] = (0, 0),
     terminal: bool = False,
@@ -29,8 +28,7 @@ def state(
     return game_pb2.GameState(
         board=game_pb2.Board(rows=1, columns=3, cells=bytes(cells)),
         scores=scores,
-        current_player=player,
-        turn=turn,
+        next_turn_by=player,
         terminal=terminal,
     )
 
@@ -60,23 +58,22 @@ class FixedActionAgent:
 class ScriptedEnvironment:
     def __init__(self) -> None:
         self.actions: list[int] = []
-        self.initial = state([0, 0, 0], turn=0, player=0)
+        self.initial = state([0, 0, 0], player=0)
         self.steps = iter(
             [
                 StepResult(
-                    state([1, 0, 0], turn=1, player=1, scores=(1, 0)),
+                    state([1, 0, 0], player=1, scores=(1, 0)),
                     player=0,
                     reward=1.0,
                 ),
                 StepResult(
-                    state([1, 2, 0], turn=2, player=0, scores=(1, 2)),
+                    state([1, 2, 0], player=0, scores=(1, 2)),
                     player=1,
                     reward=2.0,
                 ),
                 StepResult(
                     state(
                         [1, 2, 1],
-                        turn=3,
                         player=1,
                         scores=(1, 2),
                         terminal=True,
@@ -191,7 +188,7 @@ class OneMoveEvaluationEnvironment:
         return game_pb2.GameState(
             board=game_pb2.Board(rows=1, columns=1, cells=b"\x00"),
             scores=(0, 0),
-            current_player=0,
+            next_turn_by=0,
         )
 
     def step(self, _action: int) -> StepResult:
@@ -200,8 +197,7 @@ class OneMoveEvaluationEnvironment:
             game=game_pb2.GameState(
                 board=game_pb2.Board(rows=1, columns=1, cells=b"\x01"),
                 scores=scores,
-                current_player=1,
-                turn=1,
+                next_turn_by=1,
                 terminal=True,
             ),
             player=0,
@@ -271,7 +267,7 @@ class OneMoveHeadToHeadEnvironment:
         return game_pb2.GameState(
             board=game_pb2.Board(rows=1, columns=2, cells=b"\x00\x00"),
             scores=(0, 0),
-            current_player=0,
+            next_turn_by=0,
         )
 
     def step(self, action: int) -> StepResult:
@@ -282,8 +278,7 @@ class OneMoveHeadToHeadEnvironment:
             game=game_pb2.GameState(
                 board=game_pb2.Board(rows=1, columns=2, cells=cells),
                 scores=scores,
-                current_player=1,
-                turn=1,
+                next_turn_by=1,
                 terminal=True,
             ),
             player=0,

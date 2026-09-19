@@ -18,13 +18,12 @@ from dots_cordon_ml.search import (
 
 
 def game(
-    player=0, turn=0, scores=(0, 0), terminal=False, cells=b"\0\0\0\0", name="root"
+    player=0, scores=(0, 0), terminal=False, cells=b"\0\0\0\0", name="root"
 ):
     return pb.GameState(
         game_id=name,
         board=pb.Board(rows=2, columns=2, cells=cells),
-        current_player=player,
-        turn=turn,
+        next_turn_by=player,
         scores=scores,
         terminal=terminal,
     )
@@ -52,8 +51,8 @@ def test_search_accounts_for_opponents_best_reply_not_cooperative_reply():
 
     def simulate(state, action):
         if state.game_id == "root":
-            return game(1, 1, terminal=action == 1, name="reply", cells=b"\0\0\1\1")
-        return game(0, 2, scores=(1, 0) if action == 0 else (0, 1), terminal=True)
+            return game(1, terminal=action == 1, name="reply", cells=b"\0\0\1\1")
+        return game(0, scores=(1, 0) if action == 0 else (0, 1), terminal=True)
 
     search = MCTS(predict, simulate, simulations=160)
     policy = search.search(game(cells=b"\0\0\1\1"), np.random.default_rng(3))
@@ -149,14 +148,15 @@ def test_episode_labels_each_seat_from_final_outcome():
     class Environment:
         def reset(self):
             self.game = game()
+            self.moves = 0
             return self.game
 
         def step(self, action):
+            self.moves += 1
             self.game = game(
-                1 - self.game.current_player,
-                self.game.turn + 1,
+                1 - self.game.next_turn_by,
                 scores=(3, 1),
-                terminal=self.game.turn == 1,
+                terminal=self.moves == 2,
             )
             return type("Step", (), {"game": self.game})()
 

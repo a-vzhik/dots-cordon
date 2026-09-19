@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRecorderFactoryRecordsServerGame(t *testing.T) {
@@ -32,9 +33,9 @@ func TestRecorderFactoryRecordsServerGame(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
-		GameId:       created.GetGame().GetGameId(),
-		ExpectedTurn: 0,
-		Position:     &dotscordonv1.Coordinate{},
+		GameId:   created.GetGame().GetGameId(),
+		Player:   proto.Uint32(0),
+		Position: &dotscordonv1.Coordinate{},
 	})
 	require.NoError(t, err)
 
@@ -55,7 +56,7 @@ func TestTryLockGameReturnsErrorOnTimeout(t *testing.T) {
 	require.ErrorIs(t, err, ErrLockTimeout)
 	record, err := service.getGame(created.Game.GameId)
 	require.NoError(t, err)
-	require.Zero(t, record.turn)
+	require.Zero(t, record.NextTurnBy)
 
 	require.NoError(t, lock.Release())
 	retried, err := service.tryLockGame(created.Game.GameId, time.Second)
@@ -121,7 +122,7 @@ func (recorder *countingRecorder) RecordMove(
 }
 
 // newTestBlockedGame holds the first move inside its recorder, after the engine
-// changes the board but before the server updates the turn and returns a result.
+// changes its private board but before the server publishes the new state.
 func newTestBlockedGame(t *testing.T) (*Service, string, func() *dotscordonv1.MakeMoveResponse) {
 	t.Helper()
 	recorder := &blockingRecorder{started: make(chan struct{}), release: make(chan struct{})}
@@ -138,7 +139,7 @@ func newTestBlockedGame(t *testing.T) (*Service, string, func() *dotscordonv1.Ma
 	release := func() { releaseOnce.Do(func() { close(recorder.release) }) }
 	t.Cleanup(release)
 	pending := startTestCall(func() (*dotscordonv1.MakeMoveResponse, error) {
-		return service.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+		return service.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{Player: proto.Uint32(0),
 			GameId: created.Game.GameId, Position: &dotscordonv1.Coordinate{},
 		})
 	})

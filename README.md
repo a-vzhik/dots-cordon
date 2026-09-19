@@ -18,13 +18,23 @@ and intended for local/trusted networks.
 The service supports this episode lifecycle:
 
 1. `CreateGame` creates a board and returns its random `game_id`.
-2. `MakeMove` applies one action for `current_player` and returns the new state,
+2. `MakeMove` applies an action from the explicitly supplied `player` and returns the new state,
    reward (`scored_points`), killed cells, and cordons.
 3. `ResetGame` starts another episode with the same ID and configuration.
 4. `DeleteGame` releases the in-memory session.
 
-Every move includes `expected_turn`, copied from the observation it was based
-on. A stale or duplicate move is rejected with gRPC `FailedPrecondition`.
+Every move must explicitly supply `player` (0 or 1), matching the game
+state’s `next_turn_by`. Wrong-player moves return gRPC `FailedPrecondition`;
+occupied or unavailable cells return `InvalidArgument`. A stale request is
+accepted if its player and position are legal when the server executes it.
+There is no observation-version check or stored turn counter. `max_turns` is
+carried in `GameState`; zero disables it. Limits and move totals count owned
+dots, including captured dots, and exclude dead empty cells.
+
+The server stores protobuf game state directly under a keyed lock. Each move
+restores a private sequential engine and publishes its resulting state.
+Clients must regenerate bindings and supply `player`; legacy requests that
+omit it are rejected.
 `Board.cells` contains one row-major byte per cell, making it suitable for a
 direct `uint8` tensor conversion. See [game.proto](api/dotscordon/v1/game.proto)
 for the cell values and complete contract.
@@ -44,8 +54,8 @@ need.
 
 `SimulateMove` applies a move to a supplied board snapshot using an isolated
 instance of the same engine. It returns the successor and move result without
-modifying a session or allocating another game ID. Search clients supply the
-same turn limit as live play. Use `--quiet` on the server during search to
+modifying a session or allocating another game ID. Search requests identify their player and carry the
+turn limit in the supplied game state. Use `--quiet` on the server during search to
 suppress per-capture logs. See
 [search-assisted training](machinelearning/SEARCH_TRAINING.md) for the new learner.
 

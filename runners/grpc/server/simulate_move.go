@@ -4,7 +4,6 @@ import (
 	"context"
 
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
-	"github.com/a-vzhik/dots-cordon/engine"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -19,47 +18,24 @@ func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.Simula
 	if request == nil || request.Game == nil || request.Game.Board == nil || request.Position == nil {
 		return nil, status.Error(codes.InvalidArgument, "game, board, and position are required")
 	}
+	if request.Player == nil || request.GetPlayer() > 1 {
+		return nil, status.Error(codes.InvalidArgument, "player must be explicitly set to 0 or 1")
+	}
 	state := request.Game
-	board := request.Game.Board
+	board := state.Board
 	if err := validateDimensions(board.Rows, board.Columns); err != nil {
 		return nil, err
 	}
-	size := board.Rows * board.Columns
-	if len(board.Cells) != int(size) || len(state.Scores) != 2 || state.CurrentPlayer > 1 || state.Turn > size || state.CurrentPlayer != state.Turn%2 {
-		return nil, status.Error(codes.InvalidArgument, "invalid search state dimensions, scores, player, or turn")
+	if len(board.Cells) != int(board.Rows*board.Columns) || len(state.Scores) != 2 || state.NextTurnBy > 1 {
+		return nil, status.Error(codes.InvalidArgument, "invalid search state dimensions, scores, or next player")
 	}
-	if uint64(state.Scores[0])+uint64(state.Scores[1]) > uint64(size) {
+	if uint64(state.Scores[0])+uint64(state.Scores[1]) > uint64(board.Rows*board.Columns) {
 		return nil, status.Error(codes.InvalidArgument, "scores exceed board size")
 	}
-	if state.Terminal || (request.MaxTurns > 0 && state.Turn >= request.MaxTurns) {
-		return nil, status.Error(codes.FailedPrecondition, "cannot simulate a terminal position")
-	}
-	game := engine.NewGame(
-		engine.NewGameField(uint8(board.Columns), uint8(board.Rows)),
-		[]*engine.Player{{Color: engine.BlueColor}, {Color: engine.RedColor}},
-		engine.NoopGameRecorder{},
-	)
-	placed := uint32(0)
-	for index, value := range board.Cells {
+	for _, value := range board.Cells {
 		if value > byte(dotscordonv1.Cell_CELL_DEAD_PLAYER_1) {
 			return nil, status.Error(codes.InvalidArgument, "invalid cell value")
 		}
-		dot := &game.GameField.Dots[index/int(board.Columns)][index%int(board.Columns)]
-		dot.Killed = value >= byte(dotscordonv1.Cell_CELL_DEAD_EMPTY)
-		switch dotscordonv1.Cell(value) {
-		case dotscordonv1.Cell_CELL_PLAYER_0, dotscordonv1.Cell_CELL_DEAD_PLAYER_0:
-			dot.Owned, dot.Owner = true, engine.PlayerIndex(0)
-			placed++
-		case dotscordonv1.Cell_CELL_PLAYER_1, dotscordonv1.Cell_CELL_DEAD_PLAYER_1:
-			dot.Owned, dot.Owner = true, engine.PlayerIndex(1)
-			placed++
-		}
 	}
-	if placed != state.Turn {
-		return nil, status.Error(codes.InvalidArgument, "turn does not match placed dots")
-	}
-
-	game.Players[0].Score = state.Scores[0]
-	game.Players[1].Score = state.Scores[1]
-	return applyMove(game, "", state.Turn, request.MaxTurns, request.Position)
+	return applyMove(state, request.GetPlayer(), request.Position, nil)
 }

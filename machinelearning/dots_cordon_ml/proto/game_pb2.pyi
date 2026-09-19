@@ -32,14 +32,14 @@ TERMINATION_REASON_BOARD_FULL: TerminationReason
 TERMINATION_REASON_TURN_LIMIT: TerminationReason
 
 class SimulateMoveRequest(_message.Message):
-    __slots__ = ("game", "position", "max_turns")
+    __slots__ = ("game", "position", "player")
     GAME_FIELD_NUMBER: _ClassVar[int]
     POSITION_FIELD_NUMBER: _ClassVar[int]
-    MAX_TURNS_FIELD_NUMBER: _ClassVar[int]
+    PLAYER_FIELD_NUMBER: _ClassVar[int]
     game: GameState
     position: Coordinate
-    max_turns: int
-    def __init__(self, game: _Optional[_Union[GameState, _Mapping]] = ..., position: _Optional[_Union[Coordinate, _Mapping]] = ..., max_turns: _Optional[int] = ...) -> None: ...
+    player: int
+    def __init__(self, game: _Optional[_Union[GameState, _Mapping]] = ..., position: _Optional[_Union[Coordinate, _Mapping]] = ..., player: _Optional[int] = ...) -> None: ...
 
 class CreateGameRequest(_message.Message):
     __slots__ = ("rows", "columns", "max_turns")
@@ -70,14 +70,14 @@ class GetGameResponse(_message.Message):
     def __init__(self, game: _Optional[_Union[GameState, _Mapping]] = ...) -> None: ...
 
 class MakeMoveRequest(_message.Message):
-    __slots__ = ("game_id", "expected_turn", "position")
+    __slots__ = ("game_id", "position", "player")
     GAME_ID_FIELD_NUMBER: _ClassVar[int]
-    EXPECTED_TURN_FIELD_NUMBER: _ClassVar[int]
     POSITION_FIELD_NUMBER: _ClassVar[int]
+    PLAYER_FIELD_NUMBER: _ClassVar[int]
     game_id: str
-    expected_turn: int
     position: Coordinate
-    def __init__(self, game_id: _Optional[str] = ..., expected_turn: _Optional[int] = ..., position: _Optional[_Union[Coordinate, _Mapping]] = ...) -> None: ...
+    player: int
+    def __init__(self, game_id: _Optional[str] = ..., position: _Optional[_Union[Coordinate, _Mapping]] = ..., player: _Optional[int] = ...) -> None: ...
 
 class MakeMoveResponse(_message.Message):
     __slots__ = ("game", "result")
@@ -110,22 +110,22 @@ class DeleteGameResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class GameState(_message.Message):
-    __slots__ = ("game_id", "board", "scores", "current_player", "turn", "terminal", "termination_reason")
+    __slots__ = ("game_id", "board", "scores", "next_turn_by", "terminal", "termination_reason", "max_turns")
     GAME_ID_FIELD_NUMBER: _ClassVar[int]
     BOARD_FIELD_NUMBER: _ClassVar[int]
     SCORES_FIELD_NUMBER: _ClassVar[int]
-    CURRENT_PLAYER_FIELD_NUMBER: _ClassVar[int]
-    TURN_FIELD_NUMBER: _ClassVar[int]
+    NEXT_TURN_BY_FIELD_NUMBER: _ClassVar[int]
     TERMINAL_FIELD_NUMBER: _ClassVar[int]
     TERMINATION_REASON_FIELD_NUMBER: _ClassVar[int]
+    MAX_TURNS_FIELD_NUMBER: _ClassVar[int]
     game_id: str
     board: Board
     scores: _containers.RepeatedScalarFieldContainer[int]
-    current_player: int
-    turn: int
+    next_turn_by: int
     terminal: bool
     termination_reason: TerminationReason
-    def __init__(self, game_id: _Optional[str] = ..., board: _Optional[_Union[Board, _Mapping]] = ..., scores: _Optional[_Iterable[int]] = ..., current_player: _Optional[int] = ..., turn: _Optional[int] = ..., terminal: _Optional[bool] = ..., termination_reason: _Optional[_Union[TerminationReason, str]] = ...) -> None: ...
+    max_turns: int
+    def __init__(self, game_id: _Optional[str] = ..., board: _Optional[_Union[Board, _Mapping]] = ..., scores: _Optional[_Iterable[int]] = ..., next_turn_by: _Optional[int] = ..., terminal: _Optional[bool] = ..., termination_reason: _Optional[_Union[TerminationReason, str]] = ..., max_turns: _Optional[int] = ...) -> None: ...
 
 class Board(_message.Message):
     __slots__ = ("rows", "columns", "cells")

@@ -71,7 +71,7 @@ class EvaluationEnvironment:
         return game_pb2.GameState(
             board=game_pb2.Board(rows=3, columns=3, cells=bytes(9)),
             scores=(0, 0),
-            current_player=0,
+            next_turn_by=0,
         )
 
     def step(self, _action: int) -> StepResult:
@@ -79,10 +79,9 @@ class EvaluationEnvironment:
         self.game_index += 1
         return StepResult(
             game=game_pb2.GameState(
-                board=game_pb2.Board(rows=3, columns=3, cells=bytes(9)),
+                board=game_pb2.Board(rows=3, columns=3, cells=bytes([1] + [0] * 8)),
                 scores=scores,
-                current_player=1,
-                turn=1,
+                next_turn_by=1,
                 terminal=True,
             ),
             player=0,

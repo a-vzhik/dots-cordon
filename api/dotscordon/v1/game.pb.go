@@ -129,10 +129,11 @@ func (TerminationReason) EnumDescriptor() ([]byte, []int) {
 }
 
 type SimulateMoveRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Game          *GameState             `protobuf:"bytes,1,opt,name=game,proto3" json:"game,omitempty"`
-	Position      *Coordinate            `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
-	MaxTurns      uint32                 `protobuf:"varint,3,opt,name=max_turns,json=maxTurns,proto3" json:"max_turns,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Game     *GameState             `protobuf:"bytes,1,opt,name=game,proto3" json:"game,omitempty"`
+	Position *Coordinate            `protobuf:"bytes,2,opt,name=position,proto3" json:"position,omitempty"`
+	// Required: the player making this move (0 or 1).
+	Player        *uint32 `protobuf:"varint,4,opt,name=player,proto3,oneof" json:"player,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -181,9 +182,9 @@ func (x *SimulateMoveRequest) GetPosition() *Coordinate {
 	return nil
 }
 
-func (x *SimulateMoveRequest) GetMaxTurns() uint32 {
-	if x != nil {
-		return x.MaxTurns
+func (x *SimulateMoveRequest) GetPlayer() uint32 {
+	if x != nil && x.Player != nil {
+		return *x.Player
 	}
 	return 0
 }
@@ -382,12 +383,11 @@ func (x *GetGameResponse) GetGame() *GameState {
 }
 
 type MakeMoveRequest struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	GameId string                 `protobuf:"bytes,1,opt,name=game_id,json=gameId,proto3" json:"game_id,omitempty"`
-	// Must equal GameState.turn. This prevents a retried or concurrent request
-	// from applying an action to a different observation.
-	ExpectedTurn  uint32      `protobuf:"varint,2,opt,name=expected_turn,json=expectedTurn,proto3" json:"expected_turn,omitempty"`
-	Position      *Coordinate `protobuf:"bytes,3,opt,name=position,proto3" json:"position,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	GameId   string                 `protobuf:"bytes,1,opt,name=game_id,json=gameId,proto3" json:"game_id,omitempty"`
+	Position *Coordinate            `protobuf:"bytes,3,opt,name=position,proto3" json:"position,omitempty"`
+	// Required: must match GameState.next_turn_by. Stale but legal moves are allowed.
+	Player        *uint32 `protobuf:"varint,4,opt,name=player,proto3,oneof" json:"player,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -429,18 +429,18 @@ func (x *MakeMoveRequest) GetGameId() string {
 	return ""
 }
 
-func (x *MakeMoveRequest) GetExpectedTurn() uint32 {
-	if x != nil {
-		return x.ExpectedTurn
-	}
-	return 0
-}
-
 func (x *MakeMoveRequest) GetPosition() *Coordinate {
 	if x != nil {
 		return x.Position
 	}
 	return nil
+}
+
+func (x *MakeMoveRequest) GetPlayer() uint32 {
+	if x != nil && x.Player != nil {
+		return *x.Player
+	}
+	return 0
 }
 
 type MakeMoveResponse struct {
@@ -668,14 +668,15 @@ type GameState struct {
 	GameId string                 `protobuf:"bytes,1,opt,name=game_id,json=gameId,proto3" json:"game_id,omitempty"`
 	Board  *Board                 `protobuf:"bytes,2,opt,name=board,proto3" json:"board,omitempty"`
 	// Always contains [player_0_score, player_1_score].
-	Scores        []uint32 `protobuf:"varint,3,rep,packed,name=scores,proto3" json:"scores,omitempty"`
-	CurrentPlayer uint32   `protobuf:"varint,4,opt,name=current_player,json=currentPlayer,proto3" json:"current_player,omitempty"`
-	// Number of successfully applied moves. Player 0 acts on turn zero.
-	Turn              uint32            `protobuf:"varint,5,opt,name=turn,proto3" json:"turn,omitempty"`
+	Scores []uint32 `protobuf:"varint,3,rep,packed,name=scores,proto3" json:"scores,omitempty"`
+	// Explicit player to move next (0 or 1). Player 0 starts each game.
+	NextTurnBy        uint32            `protobuf:"varint,4,opt,name=next_turn_by,json=nextTurnBy,proto3" json:"next_turn_by,omitempty"`
 	Terminal          bool              `protobuf:"varint,6,opt,name=terminal,proto3" json:"terminal,omitempty"`
 	TerminationReason TerminationReason `protobuf:"varint,7,opt,name=termination_reason,json=terminationReason,proto3,enum=dotscordon.v1.TerminationReason" json:"termination_reason,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Optional episode limit. Zero means no limit; count owned dots, including captures.
+	MaxTurns      uint32 `protobuf:"varint,8,opt,name=max_turns,json=maxTurns,proto3" json:"max_turns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GameState) Reset() {
@@ -729,16 +730,9 @@ func (x *GameState) GetScores() []uint32 {
 	return nil
 }
 
-func (x *GameState) GetCurrentPlayer() uint32 {
+func (x *GameState) GetNextTurnBy() uint32 {
 	if x != nil {
-		return x.CurrentPlayer
-	}
-	return 0
-}
-
-func (x *GameState) GetTurn() uint32 {
-	if x != nil {
-		return x.Turn
+		return x.NextTurnBy
 	}
 	return 0
 }
@@ -755,6 +749,13 @@ func (x *GameState) GetTerminationReason() TerminationReason {
 		return x.TerminationReason
 	}
 	return TerminationReason_TERMINATION_REASON_UNSPECIFIED
+}
+
+func (x *GameState) GetMaxTurns() uint32 {
+	if x != nil {
+		return x.MaxTurns
+	}
+	return 0
 }
 
 type Board struct {
@@ -988,11 +989,12 @@ var File_game_proto protoreflect.FileDescriptor
 const file_game_proto_rawDesc = "" +
 	"\n" +
 	"\n" +
-	"game.proto\x12\rdotscordon.v1\"\x97\x01\n" +
+	"game.proto\x12\rdotscordon.v1\"\xb3\x01\n" +
 	"\x13SimulateMoveRequest\x12,\n" +
 	"\x04game\x18\x01 \x01(\v2\x18.dotscordon.v1.GameStateR\x04game\x125\n" +
 	"\bposition\x18\x02 \x01(\v2\x19.dotscordon.v1.CoordinateR\bposition\x12\x1b\n" +
-	"\tmax_turns\x18\x03 \x01(\rR\bmaxTurns\"^\n" +
+	"\x06player\x18\x04 \x01(\rH\x00R\x06player\x88\x01\x01B\t\n" +
+	"\a_playerJ\x04\b\x03\x10\x04R\tmax_turns\"^\n" +
 	"\x11CreateGameRequest\x12\x12\n" +
 	"\x04rows\x18\x01 \x01(\rR\x04rows\x12\x18\n" +
 	"\acolumns\x18\x02 \x01(\rR\acolumns\x12\x1b\n" +
@@ -1002,11 +1004,12 @@ const file_game_proto_rawDesc = "" +
 	"\x0eGetGameRequest\x12\x17\n" +
 	"\agame_id\x18\x01 \x01(\tR\x06gameId\"?\n" +
 	"\x0fGetGameResponse\x12,\n" +
-	"\x04game\x18\x01 \x01(\v2\x18.dotscordon.v1.GameStateR\x04game\"\x86\x01\n" +
+	"\x04game\x18\x01 \x01(\v2\x18.dotscordon.v1.GameStateR\x04game\"\x9e\x01\n" +
 	"\x0fMakeMoveRequest\x12\x17\n" +
-	"\agame_id\x18\x01 \x01(\tR\x06gameId\x12#\n" +
-	"\rexpected_turn\x18\x02 \x01(\rR\fexpectedTurn\x125\n" +
-	"\bposition\x18\x03 \x01(\v2\x19.dotscordon.v1.CoordinateR\bposition\"s\n" +
+	"\agame_id\x18\x01 \x01(\tR\x06gameId\x125\n" +
+	"\bposition\x18\x03 \x01(\v2\x19.dotscordon.v1.CoordinateR\bposition\x12\x1b\n" +
+	"\x06player\x18\x04 \x01(\rH\x00R\x06player\x88\x01\x01B\t\n" +
+	"\a_playerJ\x04\b\x02\x10\x03R\rexpected_turn\"s\n" +
 	"\x10MakeMoveResponse\x12,\n" +
 	"\x04game\x18\x01 \x01(\v2\x18.dotscordon.v1.GameStateR\x04game\x121\n" +
 	"\x06result\x18\x02 \x01(\v2\x19.dotscordon.v1.MoveResultR\x06result\"+\n" +
@@ -1016,15 +1019,16 @@ const file_game_proto_rawDesc = "" +
 	"\x04game\x18\x01 \x01(\v2\x18.dotscordon.v1.GameStateR\x04game\",\n" +
 	"\x11DeleteGameRequest\x12\x17\n" +
 	"\agame_id\x18\x01 \x01(\tR\x06gameId\"\x14\n" +
-	"\x12DeleteGameResponse\"\x90\x02\n" +
+	"\x12DeleteGameResponse\"\xb0\x02\n" +
 	"\tGameState\x12\x17\n" +
 	"\agame_id\x18\x01 \x01(\tR\x06gameId\x12*\n" +
 	"\x05board\x18\x02 \x01(\v2\x14.dotscordon.v1.BoardR\x05board\x12\x16\n" +
-	"\x06scores\x18\x03 \x03(\rR\x06scores\x12%\n" +
-	"\x0ecurrent_player\x18\x04 \x01(\rR\rcurrentPlayer\x12\x12\n" +
-	"\x04turn\x18\x05 \x01(\rR\x04turn\x12\x1a\n" +
+	"\x06scores\x18\x03 \x03(\rR\x06scores\x12 \n" +
+	"\fnext_turn_by\x18\x04 \x01(\rR\n" +
+	"nextTurnBy\x12\x1a\n" +
 	"\bterminal\x18\x06 \x01(\bR\bterminal\x12O\n" +
-	"\x12termination_reason\x18\a \x01(\x0e2 .dotscordon.v1.TerminationReasonR\x11terminationReason\"K\n" +
+	"\x12termination_reason\x18\a \x01(\x0e2 .dotscordon.v1.TerminationReasonR\x11terminationReason\x12\x1b\n" +
+	"\tmax_turns\x18\b \x01(\rR\bmaxTurnsJ\x04\b\x05\x10\x06R\x04turnR\x0ecurrent_player\"K\n" +
 	"\x05Board\x12\x12\n" +
 	"\x04rows\x18\x01 \x01(\rR\x04rows\x12\x18\n" +
 	"\acolumns\x18\x02 \x01(\rR\acolumns\x12\x14\n" +
@@ -1135,6 +1139,8 @@ func file_game_proto_init() {
 	if File_game_proto != nil {
 		return
 	}
+	file_game_proto_msgTypes[0].OneofWrappers = []any{}
+	file_game_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

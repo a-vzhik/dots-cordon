@@ -20,11 +20,14 @@ type Service struct {
 	dotscordonv1.UnimplementedGameServiceServer
 
 	lock            Lock
-	games           sync.Map     // game ID -> *gameRecord
+	games           sync.Map     // game ID -> *dotscordonv1.GameState
+	recorders       sync.Map     // game ID -> engine.Recorder
 	gameCount       atomic.Int64 // includes reserved creation slots
 	maxGames        int
 	recorderFactory RecorderFactory
 }
+
+var _ dotscordonv1.GameServiceServer = (*Service)(nil)
 
 // RecorderFactory creates an engine recorder for a game episode. The default
 // service uses NoopGameRecorder.
@@ -55,16 +58,6 @@ func NewService(maxGames int, options ...Option) *Service {
 	return service
 }
 
-var _ dotscordonv1.GameServiceServer = (*Service)(nil)
-
-// gameRecord contains only game state and server metadata. Every access is
-// protected by the server's keyed lock, acquired before loading from games.
-type gameRecord struct {
-	game     *engine.Game
-	turn     uint32
-	maxTurns uint32
-}
-
 // tryLockGame acquires exclusive access to an ID without reading game state.
 func (s *Service) tryLockGame(gameID string, timeout time.Duration) (AcquiredLock, error) {
 	if gameID == "" {
@@ -75,10 +68,10 @@ func (s *Service) tryLockGame(gameID string, timeout time.Duration) (AcquiredLoc
 
 // getGame must be called while holding the lock for gameID. The lock must remain
 // held while the returned state is accessed, including response conversion.
-func (s *Service) getGame(gameID string) (*gameRecord, error) {
-	record, ok := s.games.Load(gameID)
+func (s *Service) getGame(gameID string) (*dotscordonv1.GameState, error) {
+	state, ok := s.games.Load(gameID)
 	if !ok {
 		return nil, gameNotFound(gameID)
 	}
-	return record.(*gameRecord), nil
+	return state.(*dotscordonv1.GameState), nil
 }

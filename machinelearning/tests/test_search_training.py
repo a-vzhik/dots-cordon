@@ -8,6 +8,7 @@ from dots_cordon_ml.audit import AuditService
 from dots_cordon_ml.audit.database import Database
 from dots_cordon_ml.checkpoint import restore_agent
 from dots_cordon_ml.dqn import DQNAgent
+from dots_cordon_ml.encoding import move_count
 from dots_cordon_ml.environment import StepResult
 from dots_cordon_ml.proto import game_pb2 as pb
 
@@ -35,17 +36,16 @@ class SmallEnvironment:
         result = pb.GameState()
         result.CopyFrom(state)
         cells = bytearray(state.board.cells)
-        cells[action] = state.current_player + 1
+        cells[action] = state.next_turn_by + 1
         result.board.cells = bytes(cells)
-        result.turn += 1
-        result.current_player = 1 - state.current_player
+        result.next_turn_by = 1 - state.next_turn_by
         result.terminal = 0 not in cells or bool(
-            self.max_turns and result.turn >= self.max_turns
+            self.max_turns and move_count(result) >= self.max_turns
         )
         return result
 
     def step(self, action):
-        player = self.game.current_player
+        player = self.game.next_turn_by
         self.game = self.simulate(self.game, action)
         return StepResult(self.game, player, 0)
 

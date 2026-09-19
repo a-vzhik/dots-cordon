@@ -16,7 +16,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .dqn import ResidualBlock
-from .encoding import INPUT_CHANNELS, encode_state, legal_action_mask
+from .encoding import INPUT_CHANNELS, encode_state, legal_action_mask, move_count
 from .proto import game_pb2
 
 
@@ -227,7 +227,7 @@ class MCTS:
                     node.children[action] = Node(self.simulate(node.game, action))
                 node = node.children[action]
             if node.game.terminal:
-                player = node.game.current_player
+                player = node.game.next_turn_by
                 value = float(
                     np.sign(
                         int(node.game.scores[player])
@@ -326,7 +326,7 @@ def collect_episode(
     while not game.terminal:
         policy = search.search(game, random, explore=True)
         pending.append(
-            (encode_state(game), legal_action_mask(game), policy, game.current_player)
+            (encode_state(game), legal_action_mask(game), policy, game.next_turn_by)
         )
         action = (
             int(
@@ -335,7 +335,7 @@ def collect_episode(
                     p=policy.astype(np.float64) / policy.sum(dtype=np.float64),
                 )
             )
-            if game.turn < temperature_moves
+            if move_count(game) < temperature_moves
             else int(policy.argmax())
         )
         moves.append(action)

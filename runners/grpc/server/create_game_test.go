@@ -27,8 +27,7 @@ func TestCreateGameInitialState(t *testing.T) {
 	assert.Equal(t, uint32(3), created.GetGame().GetBoard().GetColumns())
 	assert.Equal(t, []byte{0, 0, 0, 0, 0, 0}, created.GetGame().GetBoard().GetCells())
 	assert.Equal(t, []uint32{0, 0}, created.GetGame().GetScores())
-	assert.Zero(t, created.GetGame().GetTurn())
-	assert.Zero(t, created.GetGame().GetCurrentPlayer())
+	assert.Zero(t, created.GetGame().GetNextTurnBy())
 }
 
 func TestConcurrentCreateGameHonorsLimit(t *testing.T) {

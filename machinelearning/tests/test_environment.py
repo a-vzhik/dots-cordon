@@ -5,7 +5,7 @@ import os
 import pytest
 import numpy as np
 
-from dots_cordon_ml.encoding import legal_action_mask
+from dots_cordon_ml.encoding import legal_action_mask, move_count
 from dots_cordon_ml.environment import GameEnvironment
 from dots_cordon_ml.search import MCTS
 
@@ -21,12 +21,12 @@ def test_game_server_lifecycle() -> None:
         columns=2,
     ) as environment:
         initial = environment.reset()
-        assert initial.turn == 0
+        assert move_count(initial) == 0
         assert legal_action_mask(initial).all()
 
         moved = environment.step(1)
         assert moved.player == 0
-        assert moved.game.turn == 1
+        assert move_count(moved.game) == 1
         assert not legal_action_mask(moved.game)[1]
 
 
@@ -61,7 +61,7 @@ def test_real_search_finds_terminal_capture_and_blocks_losing_reply():
         def priors(game):
             mask = legal_action_mask(game)
             policy = mask.astype(float) / mask.sum()
-            if game.turn == 6:
+            if move_count(game) == 6:
                 policy[:] = 0
                 policy[[1, 48]] = 0.5  # compare the block and observed champion mistake
             elif mask[1]:

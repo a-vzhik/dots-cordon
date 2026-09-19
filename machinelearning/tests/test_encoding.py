@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from dots_cordon_ml.encoding import encode_state, legal_action_mask
+from dots_cordon_ml.encoding import encode_state, legal_action_mask, move_count
 from dots_cordon_ml.proto import game_pb2
 
 
@@ -22,8 +22,7 @@ def game_state() -> game_pb2.GameState:
             ),
         ),
         scores=[3, 1],
-        current_player=1,
-        turn=3,
+        next_turn_by=1,
     )
 
 
@@ -37,7 +36,7 @@ def test_encoding_is_player_relative() -> None:
     np.testing.assert_array_equal(player_zero[1], player_one[0])
     np.testing.assert_array_equal(player_zero[2], player_one[2])
     np.testing.assert_allclose(player_zero[3], -player_one[3])
-    np.testing.assert_allclose(player_zero[4], 0.5)
+    np.testing.assert_allclose(player_zero[4], 4 / 6)
 
 
 def test_only_empty_cells_are_legal() -> None:
@@ -54,3 +53,7 @@ def test_encoding_rejects_malformed_board() -> None:
     with pytest.raises(ValueError, match="expected 4"):
         encode_state(game)
 
+
+
+def test_move_count_includes_captured_dots_but_not_dead_empty_cells():
+    assert move_count(game_state()) == 4

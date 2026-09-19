@@ -9,7 +9,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 from .dqn import ReplayBuffer, Transition
-from .encoding import encode_state, legal_action_mask
+from .encoding import encode_state, legal_action_mask, move_count
 from .environment import StepResult
 from .proto import game_pb2
 
@@ -148,7 +148,7 @@ def collect_self_play_episode(
             on_transition()
 
     while not game.terminal:
-        player = game.current_player
+        player = game.next_turn_by
         state = encode_state(game, player)
         legal_mask = legal_action_mask(game)
 
@@ -174,7 +174,7 @@ def collect_self_play_episode(
         add(_terminal_transition(previous, game, player, final_mask))
 
     return EpisodeResult(
-        moves=int(game.turn),
+        moves=move_count(game),
         scores=final_scores,
         transitions=transition_count,
         opponent="self-play",
@@ -214,7 +214,7 @@ def collect_against_random_episode(
 
     while not game.terminal:
         legal_mask = legal_action_mask(game)
-        if game.current_player == learner_player:
+        if game.next_turn_by == learner_player:
             state = encode_state(game, learner_player)
             if pending is not None:
                 add(_continuing_transition(pending, state, legal_mask))
@@ -241,7 +241,7 @@ def collect_against_random_episode(
         )
 
     return EpisodeResult(
-        moves=int(game.turn),
+        moves=move_count(game),
         scores=final_scores,
         transitions=transition_count,
         opponent="random",
@@ -296,7 +296,7 @@ def collect_against_agent_episode(
 
     while not game.terminal:
         legal_mask = legal_action_mask(game)
-        if game.current_player == learner_player:
+        if game.next_turn_by == learner_player:
             state = encode_state(game, learner_player)
             if pending is not None:
                 add(_continuing_transition(pending, state, legal_mask))
@@ -305,7 +305,7 @@ def collect_against_agent_episode(
             pending = _PendingTransition(state, action, step.reward)
         else:
             action = opponent.select_action(
-                encode_state(game, game.current_player),
+                encode_state(game, game.next_turn_by),
                 legal_mask,
                 epsilon=0.0,
             )
@@ -327,7 +327,7 @@ def collect_against_agent_episode(
         )
 
     return EpisodeResult(
-        moves=int(game.turn),
+        moves=move_count(game),
         scores=final_scores,
         transitions=transition_count,
         opponent="frozen",
@@ -369,7 +369,7 @@ def evaluate_against_random(
         game = environment.reset()
         while not game.terminal:
             mask = legal_action_mask(game)
-            if game.current_player == model_player:
+            if game.next_turn_by == model_player:
                 action = agent.select_action(
                     encode_state(game, model_player), mask, epsilon=0.0
                 )
@@ -423,11 +423,11 @@ def evaluate_head_to_head(
             else:
                 agent = (
                     candidate_a
-                    if game.current_player == candidate_a_player
+                    if game.next_turn_by == candidate_a_player
                     else candidate_b
                 )
                 action = agent.select_action(
-                    encode_state(game, game.current_player),
+                    encode_state(game, game.next_turn_by),
                     mask,
                     epsilon=0.0,
                 )

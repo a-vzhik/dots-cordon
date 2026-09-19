@@ -4,8 +4,8 @@ package dotscordon.v1;
 
 option go_package = "github.com/a-vzhik/dots-cordon/api/dotscordon/v1;dotscordonv1";
 
-// GameService owns in-memory game sessions. A client creates a session, sends
-// moves in turn order, and deletes or resets the session when an episode ends.
+// GameService owns in-memory games. Each move identifies its player explicitly.
+// Requests for the same game are serialized before checking player and position.
 service GameService {
   rpc CreateGame(CreateGameRequest) returns (CreateGameResponse);
   rpc GetGame(GetGameRequest) returns (GetGameResponse);
@@ -19,7 +19,10 @@ service GameService {
 message SimulateMoveRequest {
   GameState game = 1;
   Coordinate position = 2;
-  uint32 max_turns = 3;
+  reserved 3;
+  reserved "max_turns";
+  // Required: the player making this move (0 or 1).
+  optional uint32 player = 4;
 }
 
 message CreateGameRequest {
@@ -45,10 +48,11 @@ message GetGameResponse {
 message MakeMoveRequest {
   string game_id = 1;
 
-  // Must equal GameState.turn. This prevents a retried or concurrent request
-  // from applying an action to a different observation.
-  uint32 expected_turn = 2;
+  reserved 2;
+  reserved "expected_turn";
   Coordinate position = 3;
+  // Required: must match GameState.next_turn_by. Stale but legal moves are allowed.
+  optional uint32 player = 4;
 }
 
 message MakeMoveResponse {
@@ -76,12 +80,15 @@ message GameState {
 
   // Always contains [player_0_score, player_1_score].
   repeated uint32 scores = 3;
-  uint32 current_player = 4;
+  // Explicit player to move next (0 or 1). Player 0 starts each game.
+  uint32 next_turn_by = 4;
 
-  // Number of successfully applied moves. Player 0 acts on turn zero.
-  uint32 turn = 5;
+  reserved 5;
+  reserved "turn", "current_player";
   bool terminal = 6;
   TerminationReason termination_reason = 7;
+  // Optional episode limit. Zero means no limit; count owned dots, including captures.
+  uint32 max_turns = 8;
 }
 
 message Board {

@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestRunPrintsUsageForMissingOptions(t *testing.T) {
@@ -63,9 +64,9 @@ func TestRunPrintsUsageForHelp(t *testing.T) {
 func TestMakeHumanMoveIdentifiesPlayer(t *testing.T) {
 	client, game := newTestGame(t, 2, 2)
 	firstMove, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
-		GameId:       game.GetGameId(),
-		ExpectedTurn: game.GetTurn(),
-		Position:     &dotscordonv1.Coordinate{},
+		GameId:   game.GetGameId(),
+		Player:   proto.Uint32(game.GetNextTurnBy()),
+		Position: &dotscordonv1.Coordinate{},
 	})
 	require.NoError(t, err)
 
@@ -118,9 +119,9 @@ func TestMakeRandomMoveExpandsSearchBeforeFallingBackToWholeField(t *testing.T) 
 	}
 	for _, occupied := range occupiedCoordinates {
 		response, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
-			GameId:       game.GetGameId(),
-			ExpectedTurn: game.GetTurn(),
-			Position:     occupied,
+			GameId:   game.GetGameId(),
+			Player:   proto.Uint32(game.GetNextTurnBy()),
+			Position: occupied,
 		})
 		require.NoError(t, err)
 		game = response.GetGame()
@@ -225,7 +226,6 @@ func TestEmbeddedGameServerCloseStopsTheClientConnection(t *testing.T) {
 		Columns: 2,
 	})
 	require.NoError(t, err)
-	require.NoError(t, gameServer.Close())
 	require.NoError(t, gameServer.Close())
 
 	_, err = gameServer.client.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{

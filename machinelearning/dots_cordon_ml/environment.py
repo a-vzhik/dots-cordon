@@ -82,12 +82,12 @@ class GameEnvironment:
         if self.game.board.cells[action] != game_pb2.CELL_EMPTY:
             raise ValueError(f"action {action} selects a non-empty cell")
 
-        player = self.game.current_player
+        player = self.game.next_turn_by
         row, column = divmod(action, self.columns)
         response = self._stub.MakeMove(
             game_pb2.MakeMoveRequest(
                 game_id=self.game.game_id,
-                expected_turn=self.game.turn,
+                player=player,
                 position=game_pb2.Coordinate(row=row, column=column),
             ),
             timeout=self.rpc_timeout,
@@ -109,7 +109,7 @@ class GameEnvironment:
             game_pb2.SimulateMoveRequest(
                 game=game,
                 position=game_pb2.Coordinate(row=row, column=column),
-                max_turns=self.max_turns,
+                player=game.next_turn_by,
             ),
             timeout=self.rpc_timeout,
         ).game

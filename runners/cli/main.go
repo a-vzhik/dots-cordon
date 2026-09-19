@@ -19,6 +19,7 @@ import (
 	grpcserver "github.com/a-vzhik/dots-cordon/runners/grpc/server"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -109,7 +110,7 @@ func runGame(
 	for {
 		printGame(output, game, playerTypes)
 
-		playerIndex := game.GetCurrentPlayer()
+		playerIndex := game.GetNextTurnBy()
 		if playerIndex >= uint32(len(playerTypes)) {
 			return fmt.Errorf("unsupported player index: %d", playerIndex)
 		}
@@ -250,7 +251,7 @@ func makeHumanMove(
 		fmt.Fprintf(
 			output,
 			"Player %d move (<row> <col>) OR <Q> to finish the game: ",
-			game.GetCurrentPlayer(),
+			game.GetNextTurnBy(),
 		)
 		if !input.Scan() {
 			return nil, nil, scannerError(input)
@@ -269,9 +270,9 @@ func makeHumanMove(
 
 		move := &dotscordonv1.Coordinate{Row: uint32(row), Column: uint32(column)}
 		response, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
-			GameId:       game.GetGameId(),
-			ExpectedTurn: game.GetTurn(),
-			Position:     move,
+			GameId:   game.GetGameId(),
+			Player:   proto.Uint32(game.GetNextTurnBy()),
+			Position: move,
 		})
 		if err != nil {
 			if status.Code(err) != codes.InvalidArgument {
@@ -392,9 +393,9 @@ func tryRandomMove(
 	fmt.Fprintf(output, "RandomAI move: %d %d\n", row, column)
 	move := &dotscordonv1.Coordinate{Row: row, Column: column}
 	response, err := client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
-		GameId:       game.GetGameId(),
-		ExpectedTurn: game.GetTurn(),
-		Position:     move,
+		GameId:   game.GetGameId(),
+		Player:   proto.Uint32(game.GetNextTurnBy()),
+		Position: move,
 	})
 	return response, move, err
 }

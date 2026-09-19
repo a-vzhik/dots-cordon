@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestDeleteGameRemovesGame(t *testing.T) {
@@ -86,7 +87,7 @@ func TestDeleteGameWaitsForInFlightMove(t *testing.T) {
 	})
 	requireCallPending(t, pending)
 	first := finishMove()
-	require.Equal(t, uint32(1), first.Game.Turn)
+	require.Equal(t, uint32(1), first.Game.NextTurnBy)
 	result := <-pending
 	require.NoError(t, result.err)
 	_, err := service.GetGame(context.Background(), &dotscordonv1.GetGameRequest{GameId: gameID})
@@ -103,11 +104,11 @@ func TestWaitingDeleteDoesNotBlockOtherGames(t *testing.T) {
 	// Creation and moving another game must succeed before the first move ends.
 	created, err := service.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{Rows: 2, Columns: 2})
 	require.NoError(t, err)
-	moved, err := service.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+	moved, err := service.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{Player: proto.Uint32(0),
 		GameId: created.Game.GameId, Position: &dotscordonv1.Coordinate{},
 	})
 	require.NoError(t, err)
-	require.Equal(t, uint32(1), moved.Game.Turn)
+	require.Equal(t, uint32(1), moved.Game.NextTurnBy)
 
 	finishMove()
 	require.NoError(t, (<-deletion).err)

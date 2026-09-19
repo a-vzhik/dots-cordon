@@ -6,6 +6,7 @@ import (
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Service) ResetGame(
@@ -21,14 +22,11 @@ func (s *Service) ResetGame(
 		return nil, err
 	}
 	defer lock.Release()
-	record, err := s.getGame(request.GetGameId())
+	state, err := s.getGame(request.GetGameId())
 	if err != nil {
 		return nil, err
 	}
-	field := record.game.GameField
-	record.game = s.newGame(request.GetGameId(), field.Height, field.Width)
-	record.turn = 0
-	return &dotscordonv1.ResetGameResponse{
-		Game: gameStateToProto(request.GetGameId(), record.game, record.turn, record.maxTurns),
-	}, nil
+	reset := s.newGame(request.GetGameId(), uint8(state.Board.Rows), uint8(state.Board.Columns), state.MaxTurns)
+	s.games.Store(request.GetGameId(), reset)
+	return &dotscordonv1.ResetGameResponse{Game: proto.Clone(reset).(*dotscordonv1.GameState)}, nil
 }

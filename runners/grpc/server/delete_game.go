@@ -26,6 +26,7 @@ func (s *Service) DeleteGame(
 	}
 
 	s.games.Delete(request.GetGameId())
+	s.recorders.Delete(request.GetGameId())
 	s.gameCount.Add(-1)
 	return &dotscordonv1.DeleteGameResponse{}, nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/a-vzhik/dots-cordon/engine"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *Service) MakeMove(
@@ -15,6 +16,9 @@ func (s *Service) MakeMove(
 ) (*dotscordonv1.MakeMoveResponse, error) {
 	if request == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	if request.Player == nil || request.GetPlayer() > 1 {
+		return nil, status.Error(codes.InvalidArgument, "player must be explicitly set to 0 or 1")
 	}
 	if request.GetPosition() == nil {
 		return nil, status.Error(codes.InvalidArgument, "position is required")
@@ -25,49 +29,48 @@ func (s *Service) MakeMove(
 		return nil, err
 	}
 	defer lock.Release()
-	record, err := s.getGame(request.GetGameId())
+	state, err := s.getGame(request.GetGameId())
 	if err != nil {
 		return nil, err
 	}
-	if gameTerminationReason(record.game, record.turn, record.maxTurns) != dotscordonv1.TerminationReason_TERMINATION_REASON_UNSPECIFIED {
-		return nil, status.Error(codes.FailedPrecondition, "game is terminal; reset it before moving")
-	}
-	if request.GetExpectedTurn() != record.turn {
-		return nil, status.Errorf(
-			codes.FailedPrecondition,
-			"expected turn %d, current turn is %d",
-			request.GetExpectedTurn(),
-			record.turn,
-		)
-	}
-
-	response, err := applyMove(record.game, request.GetGameId(), record.turn, record.maxTurns, request.GetPosition())
+	response, err := applyMove(state, request.GetPlayer(), request.GetPosition(), func(player engine.PlayerIndex, result *engine.MoveResult) {
+		if recorder, ok := s.recorders.Load(request.GetGameId()); ok {
+			recorder.(engine.Recorder).RecordMove(player, uint8(request.Position.Row), uint8(request.Position.Column), *result)
+		}
+	})
 	if err != nil {
 		return nil, err
 	}
-	record.turn++
+	s.games.Store(request.GetGameId(), proto.Clone(response.Game).(*dotscordonv1.GameState))
 	return response, nil
 }
 
-// applyMove applies a sequential engine move and converts its response for both
-// live play and isolated simulations. The caller owns access to the game.
-func applyMove(game *engine.Game, gameID string, turn, maxTurns uint32, position *dotscordonv1.Coordinate) (*dotscordonv1.MakeMoveResponse, error) {
-	field := game.GameField
-	// Validate before narrowing protobuf coordinates to the engine's uint8.
-	if position.GetRow() >= uint32(field.Height) || position.GetColumn() >= uint32(field.Width) {
-		return nil, status.Errorf(
-			codes.InvalidArgument,
-			"position (%d, %d) is outside the %dx%d board",
-			position.GetRow(), position.GetColumn(), field.Height, field.Width,
-		)
+// applyMove checks protocol rules, applies an engine move, and returns the new
+// protocol state. It does not mutate the supplied state or derive player identity.
+func applyMove(state *dotscordonv1.GameState, player uint32, position *dotscordonv1.Coordinate, recordMove func(engine.PlayerIndex, *engine.MoveResult)) (*dotscordonv1.MakeMoveResponse, error) {
+	if state.Terminal {
+		return nil, status.Error(codes.FailedPrecondition, "game is terminal; reset it before moving")
 	}
-	player := engine.PlayerIndex(turn % 2)
-	result, err := game.Move(player, uint8(position.GetRow()), uint8(position.GetColumn()))
+	if player != state.NextTurnBy {
+		return nil, status.Errorf(codes.FailedPrecondition, "player %d is out of turn; next turn is by player %d", player, state.NextTurnBy)
+	}
+	if position.GetRow() >= state.Board.Rows || position.GetColumn() >= state.Board.Columns {
+		return nil, status.Errorf(codes.InvalidArgument, "position (%d, %d) is outside the %dx%d board", position.GetRow(), position.GetColumn(), state.Board.Rows, state.Board.Columns)
+	}
+	game := gameFromProto(state)
+	if gameTerminationReason(game, state.MaxTurns) != dotscordonv1.TerminationReason_TERMINATION_REASON_UNSPECIFIED {
+		return nil, status.Error(codes.FailedPrecondition, "game is terminal; reset it before moving")
+	}
+	movingPlayer := engine.PlayerIndex(player)
+	result, err := game.Move(movingPlayer, uint8(position.GetRow()), uint8(position.GetColumn()))
 	if err != nil {
 		return nil, moveStatus(err)
 	}
+	if recordMove != nil {
+		recordMove(movingPlayer, result)
+	}
 	return &dotscordonv1.MakeMoveResponse{
-		Game:   gameStateToProto(gameID, game, turn+1, maxTurns),
-		Result: moveResultToProto(player, result),
+		Game:   gameStateToProto(state.GameId, game, uint32(movingPlayer.EnemyIndex()), state.MaxTurns),
+		Result: moveResultToProto(movingPlayer, result),
 	}, nil
 }

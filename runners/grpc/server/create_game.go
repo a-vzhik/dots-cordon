@@ -9,6 +9,7 @@ import (
 	"github.com/a-vzhik/dots-cordon/engine"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func randomGameID() (string, error) {
@@ -55,15 +56,10 @@ func (s *Service) CreateGame(
 		}
 		defer lock.Release()
 
-		record := &gameRecord{
-			game:     s.newGame(gameID, uint8(request.GetRows()), uint8(request.GetColumns())),
-			maxTurns: request.GetMaxTurns(),
-		}
-		s.games.Store(gameID, record)
+		state := s.newGame(gameID, uint8(request.GetRows()), uint8(request.GetColumns()), request.GetMaxTurns())
+		s.games.Store(gameID, state)
 		created = true
-		return &dotscordonv1.CreateGameResponse{
-			Game: gameStateToProto(gameID, record.game, record.turn, record.maxTurns),
-		}, nil
+		return &dotscordonv1.CreateGameResponse{Game: proto.Clone(state).(*dotscordonv1.GameState)}, nil
 	}
 }
 
@@ -81,16 +77,18 @@ func (s *Service) reserveGameSlot() bool {
 	}
 }
 
-func (s *Service) newGame(gameID string, rows, columns uint8) *engine.Game {
+func (s *Service) newGame(gameID string, rows, columns uint8, maxTurns uint32) *dotscordonv1.GameState {
 	recorder := engine.Recorder(engine.NoopGameRecorder{})
 	if s.recorderFactory != nil {
 		if configured := s.recorderFactory(gameID); configured != nil {
 			recorder = configured
 		}
 	}
-	return engine.NewGame(
+	s.recorders.Store(gameID, recorder)
+	game := engine.NewGame(
 		engine.NewGameField(columns, rows),
 		[]*engine.Player{{Color: engine.BlueColor}, {Color: engine.RedColor}},
 		recorder,
 	)
+	return gameStateToProto(gameID, game, 0, maxTurns)
 }
