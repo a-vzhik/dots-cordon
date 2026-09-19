@@ -126,6 +126,7 @@ class Board(BaseModel):
 class ModelArchitecture(BaseModel):
     channels: int
     blocks: int
+    kind: str = "dqn"
 
 
 class CheckpointCounts(BaseModel):

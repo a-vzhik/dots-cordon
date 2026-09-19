@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dots_cordon_ml import promotion_evaluation
+
 import json
 from pathlib import Path
 from threading import Barrier, Lock, get_ident
@@ -150,7 +152,7 @@ def test_random_screen_runs_checkpoints_in_parallel_and_preserves_order(
         return EvaluatedCheckpoint(path, item.metadata, item.suites, item.aggregate)
 
     monkeypatch.setattr(
-        champion_loop,
+        promotion_evaluation,
         "_evaluate_against_random_suites",
         fake_evaluate,
     )
@@ -193,7 +195,7 @@ def test_head_to_head_suites_run_in_parallel_and_preserve_seed_order(
         return result(suite_seed, 0, 1, float(suite_seed))
 
     monkeypatch.setattr(
-        champion_loop,
+        promotion_evaluation,
         "_evaluate_head_to_head_suite",
         fake_suite,
     )
@@ -215,15 +217,9 @@ def test_head_to_head_suites_run_in_parallel_and_preserve_seed_order(
 def test_random_screen_allows_at_most_point_zero_zero_three_regression() -> None:
     champion = evaluated(100, 980, 0, 20, 3.0)
 
-    assert _passes_random_screen(
-        evaluated(200, 985, 0, 15, 2.0), champion, 0.003
-    )
-    assert _passes_random_screen(
-        evaluated(200, 977, 0, 23, 2.0), champion, 0.003
-    )
-    assert not _passes_random_screen(
-        evaluated(200, 976, 0, 24, 4.0), champion, 0.003
-    )
+    assert _passes_random_screen(evaluated(200, 985, 0, 15, 2.0), champion, 0.003)
+    assert _passes_random_screen(evaluated(200, 977, 0, 23, 2.0), champion, 0.003)
+    assert not _passes_random_screen(evaluated(200, 976, 0, 24, 4.0), champion, 0.003)
 
 
 def test_promotion_requires_combined_score_and_suite_wins() -> None:
@@ -306,17 +302,19 @@ def test_loop_promotes_a_screened_head_to_head_winner(
             item = evaluated(350, 60, 0, 40, 0.5)
         return EvaluatedCheckpoint(path, item.metadata, item.suites, item.aggregate)
 
-    def fake_head_to_head(*_args: object, **_kwargs: object) -> tuple[EvaluationResult, ...]:
+    def fake_head_to_head(
+        *_args: object, **_kwargs: object
+    ) -> tuple[EvaluationResult, ...]:
         return (
             result(55, 0, 45, 0.2),
             result(54, 0, 46, 0.1),
             result(53, 0, 47, 0.1),
         )
 
-    monkeypatch.setattr(champion_loop, "GameEnvironment", FakeEnvironment)
+    monkeypatch.setattr(promotion_evaluation, "GameEnvironment", FakeEnvironment)
     monkeypatch.setattr(champion_loop, "_run_training_round", fake_training)
     monkeypatch.setattr(
-        champion_loop,
+        promotion_evaluation,
         "_evaluate_against_random_suites",
         fake_screen,
     )

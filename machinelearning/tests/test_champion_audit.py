@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dots_cordon_ml import promotion_evaluation
+
 from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
@@ -178,8 +180,8 @@ def test_intermediate_champion_retains_tail_and_starts_new_branches_across_comma
         assert incumbent.metadata.episode == 0
         return result(2)
 
-    monkeypatch.setattr(champion_loop, "_evaluate_against_random_suites", screen)
-    monkeypatch.setattr(champion_loop, "_evaluate_head_to_head_suite", challenge)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_against_random_suites", screen)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_head_to_head_suite", challenge)
     assert champion_loop.run(arguments(url, champion, tmp_path / "rounds")) == 0
 
     experiment = service.get_experiment("default")
@@ -287,9 +289,9 @@ def test_qualified_candidate_losing_challenge_retains_rejection_evidence(
     def screen(args, path, _device, seeds, _games):
         return evaluated(path, seeds, 1 if is_incumbent(service, args, path) else 2)
 
-    monkeypatch.setattr(champion_loop, "_evaluate_against_random_suites", screen)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_against_random_suites", screen)
     monkeypatch.setattr(
-        champion_loop, "_evaluate_head_to_head_suite", lambda *_: result(0)
+        promotion_evaluation, "_evaluate_head_to_head_suite", lambda *_: result(0)
     )
     args = arguments(url, champion, tmp_path / "rounds", "--candidate-count", "1")
     assert champion_loop.run(args) == 0
@@ -371,8 +373,8 @@ def test_marginal_challenger_promotes_after_extended_validation(
         assert games == 1_000
         return exact_result(1_000, 501)
 
-    monkeypatch.setattr(champion_loop, "_evaluate_against_random_suites", screen)
-    monkeypatch.setattr(champion_loop, "_evaluate_head_to_head_suite", challenge)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_against_random_suites", screen)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_head_to_head_suite", challenge)
     args = arguments(
         url,
         champion,
@@ -398,22 +400,20 @@ def test_marginal_challenger_promotes_after_extended_validation(
     assert len(challenges) == 2
     initial_evaluation = service.get_evaluation(challenges[0]["id"])
     extended_evaluation = service.get_evaluation(challenges[1]["id"])
-    assert [suite["expected_games"] for suite in initial_evaluation["suites"]] == [
-        100
-    ]
+    assert [suite["expected_games"] for suite in initial_evaluation["suites"]] == [100]
     assert [suite["expected_games"] for suite in extended_evaluation["suites"]] == [
         1_000
     ] * 10
-    assert len(
-        {suite["definition"]["seed"] for suite in extended_evaluation["suites"]}
-    ) == 10
+    assert (
+        len({suite["definition"]["seed"] for suite in extended_evaluation["suites"]})
+        == 10
+    )
     (attempt,) = service.list_attempts(experiment["id"])
     decisions = service.list_decisions(attempt["id"])
-    assert [
-        item["result"]
-        for item in decisions
-        if item["stage"] == "challenge"
-    ] == ["extended", "passed"]
+    assert [item["result"] for item in decisions if item["stage"] == "challenge"] == [
+        "extended",
+        "passed",
+    ]
     promotion = next(item for item in decisions if item["result"] == "promoted")
     assert promotion["candidate_evaluation_id"] == challenges[1]["id"]
 
@@ -445,8 +445,8 @@ def test_failed_challenge_preserves_completed_suite_without_promoting(
         return result(2)
 
     monkeypatch.setattr(AuditService, "complete_suite", record_then_notify)
-    monkeypatch.setattr(champion_loop, "_evaluate_against_random_suites", screen)
-    monkeypatch.setattr(champion_loop, "_evaluate_head_to_head_suite", challenge)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_against_random_suites", screen)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_head_to_head_suite", challenge)
     args = arguments(url, champion, tmp_path / "rounds", "--candidate-count", "1")
     with pytest.raises(ConnectionError, match="second challenge suite disconnected"):
         champion_loop.run(args)
@@ -491,9 +491,9 @@ def test_failed_compatibility_export_preserves_committed_champion(
         return evaluated(path, seeds, 1 if is_incumbent(service, args, path) else 2)
 
     monkeypatch.setattr(AuditService, "export_checkpoint", fail_promoted_file)
-    monkeypatch.setattr(champion_loop, "_evaluate_against_random_suites", screen)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_against_random_suites", screen)
     monkeypatch.setattr(
-        champion_loop, "_evaluate_head_to_head_suite", lambda *_: result(2)
+        promotion_evaluation, "_evaluate_head_to_head_suite", lambda *_: result(2)
     )
     args = arguments(
         url,
@@ -520,7 +520,7 @@ def test_failed_compatibility_export_preserves_committed_champion(
 
     monkeypatch.setattr(AuditService, "export_checkpoint", export_checkpoint)
     monkeypatch.setattr(
-        champion_loop, "_evaluate_against_random_suites", reject_next_screen
+        promotion_evaluation, "_evaluate_against_random_suites", reject_next_screen
     )
     assert (
         champion_loop.run(
@@ -562,8 +562,8 @@ def test_screen_and_challenge_use_saved_blobs_after_round_files_are_overwritten(
     monkeypatch.setattr(
         champion_loop, "_evaluate_random_screen", overwrite_before_screen
     )
-    monkeypatch.setattr(champion_loop, "_evaluate_against_random_suites", screen)
-    monkeypatch.setattr(champion_loop, "_evaluate_head_to_head_suite", challenge)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_against_random_suites", screen)
+    monkeypatch.setattr(promotion_evaluation, "_evaluate_head_to_head_suite", challenge)
     args = arguments(
         url,
         champion,

@@ -144,6 +144,18 @@ def test_health_openapi_and_read_only_routes(client, history):
             connection.execute(schema.experiments.update().values(name="not-allowed"))
 
 
+def test_checkpoint_api_distinguishes_policy_value_models(client, audit, history, tmp_path):
+    experiment, champion, _, path = history
+    assert get(client, f"/api/v1/checkpoints/{champion['id']}")["model"]["kind"] == "dqn"
+    payload = torch.load(path, map_location="cpu", weights_only=True)
+    payload["model"]["kind"] = "policy_value"
+    search_path = tmp_path / "policy-value.pt"
+    torch.save(payload, search_path)
+    checkpoint = audit[0].import_checkpoint(experiment["id"], search_path)
+    response = get(client, f"/api/v1/checkpoints/{checkpoint['id']}")
+    assert response["model"]["kind"] == "policy_value"
+
+
 def test_missing_or_unmigrated_db_is_unavailable_without_creating_schema(tmp_path):
     path = tmp_path / "missing.sqlite3"
     with TestClient(create_app(f"sqlite:///{path}")) as client:

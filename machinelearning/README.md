@@ -1,5 +1,10 @@
 # Dots Cordon training
 
+For the new policy/value model trained through search-assisted self-play, see
+[Search-assisted self-play](SEARCH_TRAINING.md). It supports transferring the
+existing DQN feature extractor, continuous learning with persisted replay, and
+separate evaluations of the neural policy and the policy with search.
+
 This directory contains a server-backed convolutional DQN trainer. It supports
 continuous self-play and an optional mixture of games against a uniform-random
 opponent. Board states are encoded relative to the player about to act, and
@@ -538,4 +543,4 @@ The model receives five planes:
 
 The checked-in Python protobuf message module is generated from
 `../api/dotscordon/v1/game.proto`; `game_pb2_grpc.py` is a client-only service
-stub for the five existing RPCs.
+stub for the game lifecycle and stateless search simulation RPCs.

@@ -51,7 +51,7 @@ export function checkpoint(
     environment_steps: episode * 4,
     optimization_steps: episode,
     board: { rows: 7, columns: 7 },
-    model: { channels: 64, blocks: 3 },
+    model: { channels: 64, blocks: 3, kind: 'dqn' },
     origin: attempt_id ? 'training' : 'import',
     save_sequence: episode,
     candidate_index: null,

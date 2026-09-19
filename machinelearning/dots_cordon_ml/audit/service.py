@@ -311,7 +311,11 @@ class AuditService:
                     environment_steps=metadata.environment_steps,
                     optimization_steps=metadata.optimization_steps,
                     board={"rows": metadata.rows, "columns": metadata.columns},
-                    model={"channels": metadata.channels, "blocks": metadata.blocks},
+                    model={
+                        "channels": metadata.channels,
+                        "blocks": metadata.blocks,
+                        **({"kind": metadata.kind} if metadata.kind != "dqn" else {}),
+                    },
                     origin="training" if attempt else "imported",
                     save_sequence=len(checkpoints) + 1,
                     candidate_index=candidate_index,

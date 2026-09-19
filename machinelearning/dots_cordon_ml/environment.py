@@ -99,6 +99,21 @@ class GameEnvironment:
             reward=float(response.result.scored_points),
         )
 
+    def simulate(self, game: game_pb2.GameState, action: int) -> game_pb2.GameState:
+        """Advance an isolated search position without changing the live game."""
+        self._ensure_open()
+        if not 0 <= action < game.board.rows * game.board.columns:
+            raise ValueError("simulation action is outside the board")
+        row, column = divmod(action, game.board.columns)
+        return self._stub.SimulateMove(
+            game_pb2.SimulateMoveRequest(
+                game=game,
+                position=game_pb2.Coordinate(row=row, column=column),
+                max_turns=self.max_turns,
+            ),
+            timeout=self.rpc_timeout,
+        ).game
+
     def close(self) -> None:
         if self._closed:
             return

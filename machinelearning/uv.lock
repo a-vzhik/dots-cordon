@@ -180,7 +180,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "grpcio", specifier = ">=1.70,<2" },
     { name = "numpy", specifier = ">=2,<3" },
-    { name = "protobuf", specifier = ">=7.36,<8" },
+    { name = "protobuf", specifier = ">=7.36.1,<8" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2,<4" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "sqlalchemy", specifier = ">=2.0,<3" },

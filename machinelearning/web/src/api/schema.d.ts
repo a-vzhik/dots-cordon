@@ -959,6 +959,11 @@ export interface components {
             channels: number;
             /** Blocks */
             blocks: number;
+            /**
+             * Kind
+             * @default dqn
+             */
+            kind: string;
         };
         /** Page[AttemptSummary] */
         Page_AttemptSummary_: {

@@ -796,6 +796,7 @@ export function CheckpointsView({
                         <dd className="mono">{checkpoint.blob.sha256 ?? '—'}</dd>
                         <dt>Model</dt>
                         <dd>
+                          {checkpoint.model.kind === 'policy_value' ? 'Policy/value' : 'DQN'} ·{' '}
                           {checkpoint.model.channels} channels / {checkpoint.model.blocks} blocks
                         </dd>
                         <dt>Board</dt>

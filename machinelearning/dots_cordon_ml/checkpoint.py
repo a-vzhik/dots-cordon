@@ -20,6 +20,7 @@ class CheckpointMetadata:
     episode: int
     environment_steps: int
     optimization_steps: int
+    kind: str = "dqn"
 
     @property
     def board(self) -> tuple[int, int]:
@@ -51,6 +52,7 @@ def read_checkpoint(
             episode=int(training["episode"]),
             environment_steps=int(training["environment_steps"]),
             optimization_steps=int(training["optimization_steps"]),
+            kind=str(model.get("kind", "dqn")),
         )
         checkpoint["online"]
     except (KeyError, TypeError, ValueError) as exc:
@@ -65,6 +67,10 @@ def restore_agent(
     *,
     restore_optimizer: bool,
 ) -> None:
+    if checkpoint.get("model", {}).get("kind", "dqn") != "dqn":
+        raise ValueError(
+            "policy/value checkpoints require dots-cordon-search-evaluate or dots-cordon-search-train"
+        )
     agent.online.load_state_dict(checkpoint["online"])
     if "target" in checkpoint:
         agent.target.load_state_dict(checkpoint["target"])
@@ -75,4 +81,3 @@ def restore_agent(
             agent.optimizer.load_state_dict(checkpoint["optimizer"])
         except KeyError as exc:
             raise ValueError("checkpoint does not contain optimizer state") from exc
-

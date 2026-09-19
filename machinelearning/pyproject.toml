@@ -12,7 +12,7 @@ dependencies = [
     "fastapi>=0.115,<1",
     "grpcio>=1.70,<2",
     "numpy>=2,<3",
-    "protobuf>=7.36,<8",
+    "protobuf>=7.36.1,<8",
     "pydantic>=2.10,<3",
     "sqlalchemy>=2.0,<3",
     "torch>=2.6,<3",
@@ -25,6 +25,9 @@ dots-cordon-evaluate = "dots_cordon_ml.evaluate:main"
 dots-cordon-head-to-head = "dots_cordon_ml.head_to_head:main"
 dots-cordon-champion-loop = "dots_cordon_ml.champion_loop:main"
 dots-cordon-audit = "dots_cordon_ml.audit.cli:main"
+dots-cordon-search-train = "dots_cordon_ml.search_train:main"
+dots-cordon-search-evaluate = "dots_cordon_ml.search_evaluate:main"
+dots-cordon-promote-run = "dots_cordon_ml.promote_run:main"
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
