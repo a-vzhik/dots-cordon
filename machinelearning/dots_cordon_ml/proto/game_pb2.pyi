@@ -31,6 +31,16 @@ TERMINATION_REASON_UNSPECIFIED: TerminationReason
 TERMINATION_REASON_BOARD_FULL: TerminationReason
 TERMINATION_REASON_TURN_LIMIT: TerminationReason
 
+class SimulateMoveRequest(_message.Message):
+    __slots__ = ("game", "position", "max_turns")
+    GAME_FIELD_NUMBER: _ClassVar[int]
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    MAX_TURNS_FIELD_NUMBER: _ClassVar[int]
+    game: GameState
+    position: Coordinate
+    max_turns: int
+    def __init__(self, game: _Optional[_Union[GameState, _Mapping]] = ..., position: _Optional[_Union[Coordinate, _Mapping]] = ..., max_turns: _Optional[int] = ...) -> None: ...
+
 class CreateGameRequest(_message.Message):
     __slots__ = ("rows", "columns", "max_turns")
     ROWS_FIELD_NUMBER: _ClassVar[int]

@@ -20,7 +20,11 @@ import (
 func main() {
 	listenAddress := flag.String("listen", "127.0.0.1:50051", "TCP address to listen on")
 	maxGames := flag.Int("max-games", 10000, "maximum concurrent games; zero disables the limit")
+	quiet := flag.Bool("quiet", false, "suppress informational engine logs during search/training")
 	flag.Parse()
+	if *quiet {
+		slog.SetLogLoggerLevel(slog.LevelWarn)
+	}
 
 	if *maxGames < 0 {
 		fmt.Fprintln(os.Stderr, "--max-games must be non-negative")
@@ -53,7 +57,7 @@ func main() {
 		server.GracefulStop()
 	}()
 
-	slog.Info("gRPC game server listening", "address", listener.Addr())
+	fmt.Fprintf(os.Stderr, "gRPC game server listening address=%s\n", listener.Addr())
 	if err := server.Serve(listener); err != nil {
 		slog.Error("serve", "error", err)
 		os.Exit(1)

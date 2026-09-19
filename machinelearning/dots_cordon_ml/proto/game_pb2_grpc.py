@@ -12,6 +12,11 @@ from . import game_pb2
 
 class GameServiceStub:
     def __init__(self, channel: grpc.Channel) -> None:
+        self.SimulateMove = channel.unary_unary(
+            "/dotscordon.v1.GameService/SimulateMove",
+            request_serializer=game_pb2.SimulateMoveRequest.SerializeToString,
+            response_deserializer=game_pb2.MakeMoveResponse.FromString,
+        )
         self.CreateGame = channel.unary_unary(
             "/dotscordon.v1.GameService/CreateGame",
             request_serializer=game_pb2.CreateGameRequest.SerializeToString,
@@ -37,4 +42,3 @@ class GameServiceStub:
             request_serializer=game_pb2.DeleteGameRequest.SerializeToString,
             response_deserializer=game_pb2.DeleteGameResponse.FromString,
         )
-

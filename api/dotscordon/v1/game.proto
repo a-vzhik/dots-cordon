@@ -12,6 +12,14 @@ service GameService {
   rpc MakeMove(MakeMoveRequest) returns (MakeMoveResponse);
   rpc ResetGame(ResetGameRequest) returns (ResetGameResponse);
   rpc DeleteGame(DeleteGameRequest) returns (DeleteGameResponse);
+  // Apply a move to an isolated state for tree search. No session is read or written.
+  rpc SimulateMove(SimulateMoveRequest) returns (MakeMoveResponse);
+}
+
+message SimulateMoveRequest {
+  GameState game = 1;
+  Coordinate position = 2;
+  uint32 max_turns = 3;
 }
 
 message CreateGameRequest {

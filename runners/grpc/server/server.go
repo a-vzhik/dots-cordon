@@ -171,7 +171,11 @@ func (s *Service) MakeMove(
 		)
 	}
 
-	position := request.GetPosition()
+	return session.moveLocked(request.GetPosition())
+}
+
+// moveLocked is shared by live play and isolated search simulations.
+func (session *gameSession) moveLocked(position *dotscordonv1.Coordinate) (*dotscordonv1.MakeMoveResponse, error) {
 	if position.GetRow() >= uint32(session.rows) || position.GetColumn() >= uint32(session.columns) {
 		return nil, status.Errorf(
 			codes.InvalidArgument,

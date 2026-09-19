@@ -42,6 +42,13 @@ Games are intentionally process-local: restarting the server discards them.
 Clients should set RPC deadlines and explicitly delete sessions they no longer
 need.
 
+`SimulateMove` applies a move to a supplied board snapshot using an isolated
+instance of the same engine. It returns the successor and move result without
+modifying a session or allocating another game ID. Search clients supply the
+same turn limit as live play. Use `--quiet` on the server during search to
+suppress per-capture logs. See
+[search-assisted training](machinelearning/SEARCH_TRAINING.md) for the new learner.
+
 ### Regenerating Go bindings
 
 Generated bindings are checked in. To regenerate them after editing the proto:
