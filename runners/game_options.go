@@ -15,31 +15,41 @@ const (
 	Human PlayerType = iota
 	RandomAI
 	Agent
+	Model
 )
 
 type GameOptions struct {
 	BoardRows   uint8
 	BoardCols   uint8
 	PlayerTypes [2]PlayerType
+	Weights     [2]string
+	ONNXRuntime string
 }
 
 type gameOptionsInput struct {
-	board   string
-	player0 string
-	player1 string
+	board       string
+	player0     string
+	player1     string
+	weights     [2]string
+	onnxruntime string
 }
 
 func newGameOptionsFlagSet(output io.Writer, input *gameOptionsInput) *flag.FlagSet {
 	flags := flag.NewFlagSet("dots-cordon", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&input.board, "board", "", "board dimensions as <rows>x<cols>")
-	flags.StringVar(&input.player0, "player0", "", "player 0 controller: human, agent, or random")
-	flags.StringVar(&input.player1, "player1", "", "player 1 controller: human, agent, or random")
+	flags.StringVar(&input.player0, "player0", "", "player 0 controller: human, agent, random, or model")
+	flags.StringVar(&input.player1, "player1", "", "player 1 controller: human, agent, random, or model")
+	flags.StringVar(&input.weights[0], "player0-weights", "", "exported ONNX policy file")
+	flags.StringVar(&input.weights[1], "player1-weights", "", "exported ONNX policy file")
+	flags.StringVar(&input.onnxruntime, "onnxruntime", "", "ONNX Runtime library path (or ONNXRUNTIME_SHARED_LIBRARY_PATH)")
 	flags.Usage = func() {
 		fmt.Fprintln(output, "Usage:")
 		fmt.Fprintln(output, "  dots-cordon --board=<rows>x<cols> --player0=<type> --player1=<type>")
 		fmt.Fprintln(output)
-		fmt.Fprintln(output, "Player types: human, agent, random")
+		fmt.Fprintln(output, "Player types: human, agent, random, model")
+		fmt.Fprintln(output, "Model players require --player0-weights or --player1-weights.")
+		fmt.Fprintln(output, "Optional: --onnxruntime=<native-library-path>")
 	}
 	return flags
 }
@@ -88,10 +98,21 @@ func ParseGameOptions(args []string) (GameOptions, error) {
 		return GameOptions{}, fmt.Errorf("invalid player1 %q: %w", input.player1, err)
 	}
 
+	playerTypes := [2]PlayerType{player0Type, player1Type}
+	for player, kind := range playerTypes {
+		if kind == Model && strings.TrimSpace(input.weights[player]) == "" {
+			return GameOptions{}, fmt.Errorf("player%d=model requires --player%d-weights", player, player)
+		}
+		if kind != Model && input.weights[player] != "" {
+			return GameOptions{}, fmt.Errorf("--player%d-weights requires --player%d=model", player, player)
+		}
+	}
 	return GameOptions{
 		BoardRows:   rows,
 		BoardCols:   cols,
-		PlayerTypes: [2]PlayerType{player0Type, player1Type},
+		PlayerTypes: playerTypes,
+		Weights:     input.weights,
+		ONNXRuntime: input.onnxruntime,
 	}, nil
 }
 
@@ -130,7 +151,9 @@ func parsePlayerType(value string) (PlayerType, error) {
 		return Agent, nil
 	case "random":
 		return RandomAI, nil
+	case "model":
+		return Model, nil
 	default:
-		return 0, errors.New(`must be "human", "agent", or "random"`)
+		return 0, errors.New(`must be "human", "agent", "random", or "model"`)
 	}
 }

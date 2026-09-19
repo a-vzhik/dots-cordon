@@ -95,6 +95,7 @@ func TestRunGameAcceptsAgentPlayerThroughGRPC(t *testing.T) {
 		[2]runners.PlayerType{runners.Agent, runners.RandomAI},
 		input,
 		&output,
+		[2]moveSelector{},
 	)
 
 	require.NoError(t, err)

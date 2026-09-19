@@ -46,6 +46,20 @@ func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer
 		runners.PrintGameOptionsUsage(errorOutput)
 		return 2
 	}
+	var models [2]moveSelector
+	for player, kind := range options.PlayerTypes {
+		if kind != runners.Model {
+			continue
+		}
+		model, info, modelErr := startModelPlayer(options, player)
+		if modelErr != nil {
+			fmt.Fprintf(errorOutput, "Failed to load player %d model: %v\n", player, modelErr)
+			return 1
+		}
+		defer model.Close()
+		models[player] = model
+		fmt.Fprintf(output, "Player %d model: %s (episode %d, %s, policy only)\n", player, options.Weights[player], info.Episode, info.Kind)
+	}
 
 	recordFilePath := fmt.Sprintf(
 		"game-%s.json",
@@ -89,6 +103,7 @@ func run(args []string, input io.Reader, output io.Writer, errorOutput io.Writer
 		options.PlayerTypes,
 		bufio.NewScanner(input),
 		output,
+		models,
 	)
 	if err != nil && !errors.Is(err, io.EOF) {
 		fmt.Fprintf(errorOutput, "Game stopped: %v\n", err)
@@ -104,6 +119,7 @@ func runGame(
 	playerTypes [2]runners.PlayerType,
 	input *bufio.Scanner,
 	output io.Writer,
+	models [2]moveSelector,
 ) error {
 	var lastMove *dotscordonv1.Coordinate
 
@@ -127,6 +143,17 @@ func runGame(
 			response, currentMove, err = makeHumanMove(client, game, input, output)
 		case runners.RandomAI:
 			response, currentMove, err = makeRandomMove(client, game, lastMove, output)
+		case runners.Model:
+			if models[playerIndex] == nil {
+				return fmt.Errorf("player %d model is not loaded", playerIndex)
+			}
+			currentMove, err = models[playerIndex].Move(game)
+			if err == nil {
+				fmt.Fprintf(output, "Model move: %d %d\n", currentMove.GetRow(), currentMove.GetColumn())
+				response, err = client.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+					GameId: game.GetGameId(), Player: proto.Uint32(playerIndex), Position: currentMove,
+				})
+			}
 		default:
 			return fmt.Errorf("unsupported player type: %d", playerType)
 		}
@@ -236,6 +263,8 @@ func playerTypeName(playerType runners.PlayerType) string {
 		return "Agent"
 	case runners.RandomAI:
 		return "RandomAI"
+	case runners.Model:
+		return "Model"
 	default:
 		return fmt.Sprintf("Unknown:%d", playerType)
 	}

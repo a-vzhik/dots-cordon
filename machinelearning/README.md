@@ -5,6 +5,14 @@ For the new policy/value model trained through search-assisted self-play, see
 existing DQN feature extractor, continuous learning with persisted replay, and
 separate evaluations of the neural policy and the policy with search.
 
+To play against a trained model in the terminal, use the
+[CLI model player](../README.md#cli-runner). Export `champion:EXPERIMENT`,
+`checkpoint:UUID`, or a `.pt` checkpoint with `dots-cordon-export-policy` (install
+`uv sync --extra export` first). The Go runner loads the resulting `.onnx` file
+and runs inference in process; Python is not used during gameplay. Exported
+policies accept variable board dimensions, so the CLI's `--board` may differ
+from the training board without another export or retraining.
+
 This directory contains a server-backed convolutional DQN trainer. It supports
 continuous self-play and an optional mixture of games against a uniform-random
 opponent. Board states are encoded relative to the player about to act, and

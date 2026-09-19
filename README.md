@@ -81,3 +81,74 @@ The CLI starts a private gRPC server on an ephemeral loopback port and plays
 through the same `GameService` API used by external agents. It shuts the server
 down when the game finishes, input ends, the user quits, or an error stops the
 game. CLI games continue to be written to timestamped `game-*.json` records.
+
+The model player loads an ONNX policy into Go and runs inference in the CLI
+process using [onnxruntime_go](https://github.com/yalue/onnxruntime_go).
+Python is used once to export a training checkpoint; gameplay needs only the Go
+binary, the exported model, and the native ONNX Runtime library.
+
+Export the current champion (from the repository root):
+
+```sh
+uv sync --project machinelearning --extra export
+machinelearning/.venv/bin/dots-cordon-export-policy \
+  champion:search-warm-7x7 \
+  machinelearning/checkpoints/search-warm-7x7/policy-champion.onnx
+```
+
+The exporter also accepts `.pt` paths and `checkpoint:UUID`, with
+`--database-url` or `DOTS_CORDON_DATABASE_URL` to select an audit database.
+It reads the database without modifying training history. Export again to play
+a newly promoted champion; an exported file is a fixed snapshot.
+
+Install the **ONNX Runtime 1.29.0** shared library for your OS and architecture
+from the [official release](https://github.com/microsoft/onnxruntime/releases/tag/v1.29.0).
+The pinned Go wrapper is v1.36.0 and requires that runtime API version. Building
+the CLI requires Go with CGO enabled and a C compiler. On Apple Silicon, the
+wrapper's module also includes the matching runtime, which can be copied locally:
+
+```sh
+go mod download github.com/yalue/onnxruntime_go
+mkdir -p machinelearning/runtime
+cp "$(go env GOMODCACHE)/github.com/yalue/onnxruntime_go@v1.36.0/test_data/onnxruntime_arm64.dylib" \
+  machinelearning/runtime/libonnxruntime.1.29.0.dylib
+```
+
+Play from the repository root (Apple Silicon example):
+
+```sh
+go run ./runners/cli --board=7x7 \
+  --player0=human --player1=model \
+  --player1-weights=machinelearning/checkpoints/search-warm-7x7/policy-champion.onnx \
+  --onnxruntime=machinelearning/runtime/libonnxruntime.1.29.0.dylib
+```
+
+Alternatively set `ONNXRUNTIME_SHARED_LIBRARY_PATH` to the native library path.
+Player 0 moves first. Enter zero-based `row col` coordinates (for example,
+`3 4`); enter `Q` to quit. Swap the player types and use `--player0-weights`
+for the model to move first.
+
+Both DQN and policy/value models use greedy action selection, without search or
+exploration. The CLI reports the episode and loads the model once per game.
+Choose any supported board size with `--board`, including `10x15`, `12x12`, or
+`5x15`. One exported model accepts different row and column counts; no retraining
+or separate export per size is required. Training dimensions are recorded as
+metadata, and playing strength on other sizes depends on what the model learned.
+Older fixed-size ONNX files need a one-time re-export to support other sizes.
+Checkpoints trained with a turn limit are rejected at export because CLI games
+use the full board. No training server or audit
+database is needed during gameplay. The `agent` player type still takes manually
+entered moves; use `model` for a trained opponent.
+
+Native inference parity tests compare Go encoding, action scores, and selected
+moves with checked-in PyTorch fixtures for both architectures across square and
+rectangular boards, including changing dimensions within a loaded model:
+
+```sh
+ONNXRUNTIME_SHARED_LIBRARY_PATH="$PWD/machinelearning/runtime/libonnxruntime.1.29.0.dylib" \
+  go test -timeout=10s ./inference ./runners ./runners/cli
+```
+
+Without the environment variable, native runtime tests skip; encoding and
+move-selection tests still run. Regenerate fixtures with
+`machinelearning/.venv/bin/python inference/testdata/generate.py`.

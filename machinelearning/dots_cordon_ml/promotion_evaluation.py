@@ -54,8 +54,13 @@ def _load_agent(
     device: torch.device,
     seed: int,
 ) -> DQNAgent | PolicyValueAgent:
+    checkpoint, _ = read_checkpoint(path, map_location="cpu")
+    return agent_from_checkpoint(checkpoint, metadata, device, seed)
+
+
+def agent_from_checkpoint(checkpoint, metadata, device, seed=0):
+    """Construct a greedy player from an already loaded, immutable snapshot."""
     if metadata.kind == "policy_value":
-        checkpoint, _ = read_checkpoint(path, map_location="cpu")
         agent = PolicyValueAgent(device, metadata.channels, metadata.blocks)
         agent.online.load_state_dict(checkpoint["online"])
         return agent
@@ -67,7 +72,6 @@ def _load_agent(
         channels=metadata.channels,
         blocks=metadata.blocks,
     )
-    checkpoint, _ = read_checkpoint(path, map_location=device)
     restore_agent(agent, checkpoint, restore_optimizer=False)
     return agent
 

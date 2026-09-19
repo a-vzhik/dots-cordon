@@ -28,9 +28,11 @@ dots-cordon-audit = "dots_cordon_ml.audit.cli:main"
 dots-cordon-search-train = "dots_cordon_ml.search_train:main"
 dots-cordon-search-evaluate = "dots_cordon_ml.search_evaluate:main"
 dots-cordon-promote-run = "dots_cordon_ml.promote_run:main"
+dots-cordon-export-policy = "dots_cordon_ml.export_policy:main"
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
+export = ["onnx>=1.17,<2"]
 
 [dependency-groups]
 dev = [

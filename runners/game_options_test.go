@@ -38,7 +38,7 @@ func TestParseGameOptions(t *testing.T) {
 			"--player1=robot",
 		})
 
-		assert.EqualError(t, err, `invalid player1 "robot": must be "human", "agent", or "random"`)
+		assert.EqualError(t, err, `invalid player1 "robot": must be "human", "agent", "random", or "model"`)
 	})
 
 	t.Run("unexpected argument", func(t *testing.T) {
@@ -62,7 +62,9 @@ func TestPrintGameOptionsUsage(t *testing.T) {
 	assert.Equal(t, "Usage:\n"+
 		"  dots-cordon --board=<rows>x<cols> --player0=<type> --player1=<type>\n"+
 		"\n"+
-		"Player types: human, agent, random\n", output.String())
+		"Player types: human, agent, random, model\n"+
+		"Model players require --player0-weights or --player1-weights.\n"+
+		"Optional: --onnxruntime=<native-library-path>\n", output.String())
 }
 
 func TestParseBoardSize(t *testing.T) {
@@ -96,6 +98,17 @@ func TestParseBoardSize(t *testing.T) {
 	}
 }
 
+func TestModelOptions(t *testing.T) {
+	options, err := ParseGameOptions([]string{"--board=7x7", "--player0=human", "--player1=model", "--player1-weights=champion.onnx"})
+	require.NoError(t, err)
+	assert.Equal(t, Model, options.PlayerTypes[1])
+	assert.Equal(t, "champion.onnx", options.Weights[1])
+	_, err = ParseGameOptions([]string{"--board=7x7", "--player0=human", "--player1=model"})
+	assert.ErrorContains(t, err, "requires --player1-weights")
+	_, err = ParseGameOptions([]string{"--board=7x7", "--player0=human", "--player1=random", "--player1-weights=model.pt"})
+	assert.ErrorContains(t, err, "requires --player1=model")
+}
+
 func TestParsePlayerType(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -118,5 +131,5 @@ func TestParsePlayerType(t *testing.T) {
 	}
 
 	_, err := parsePlayerType("robot")
-	assert.EqualError(t, err, `must be "human", "agent", or "random"`)
+	assert.EqualError(t, err, `must be "human", "agent", "random", or "model"`)
 }

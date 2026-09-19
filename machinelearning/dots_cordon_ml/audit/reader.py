@@ -324,6 +324,24 @@ class AuditReader:
     def download_bytes(self, blob_id):
         return self.repository.payload(blob_id)
 
+    def download_reference(self, reference):
+        """Resolve champion and bytes in the caller's single read-only snapshot."""
+        if reference.startswith("champion:"):
+            experiment = self.repository.experiment(
+                reference.removeprefix("champion:") or "default"
+            )
+            assignment_id = experiment["current_champion_assignment_id"]
+            if assignment_id is None:
+                raise RecordNotFound("Experiment does not have a champion")
+            assignment = self.repository.required("champion_history", assignment_id)
+            identifier = assignment["checkpoint_id"]
+        elif reference.startswith("checkpoint:"):
+            identifier = reference.removeprefix("checkpoint:")
+        else:
+            raise AuditError("Expected champion:EXPERIMENT or checkpoint:UUID")
+        metadata = self.download_metadata(identifier)
+        return self.download_bytes(metadata["id"])
+
     def evaluation(
         self,
         identifier,
