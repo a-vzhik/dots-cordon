@@ -19,7 +19,8 @@ func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.Simula
 	if request == nil || request.Game == nil || request.Game.Board == nil || request.Position == nil {
 		return nil, status.Error(codes.InvalidArgument, "game, board, and position are required")
 	}
-	state, board := request.Game, request.Game.Board
+	state := request.Game
+	board := request.Game.Board
 	if err := validateDimensions(board.Rows, board.Columns); err != nil {
 		return nil, err
 	}
@@ -53,7 +54,10 @@ func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.Simula
 	if placed != state.Turn {
 		return nil, status.Error(codes.InvalidArgument, "turn does not match placed dots")
 	}
-	session.turn, session.current = state.Turn, engine.PlayerIndex(state.CurrentPlayer)
-	session.game.Players[0].Score, session.game.Players[1].Score = state.Scores[0], state.Scores[1]
+
+	session.turn = state.Turn
+	session.current = engine.PlayerIndex(state.CurrentPlayer)
+	session.game.Players[0].Score = state.Scores[0]
+	session.game.Players[1].Score = state.Scores[1]
 	return session.moveLocked(request.Position)
 }
