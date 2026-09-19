@@ -40,17 +40,45 @@ uv run dots-cordon-search-train \
 This copies the DQN's convolutional stem and residual blocks. The policy and
 value heads, optimizer, replay, and episode counters start fresh. The old Q
 head and target network are not reused. Model width/depth are inferred from
-the source. Board dimensions must match; both default to 7.
+the source. Board dimensions default to 7; explicit transfer can change them.
 
 `champion:default` resolves once per command. Its immutable bytes are used for
 the whole run, even if the old champion loop promotes another checkpoint.
-Initialization records the source reference, SHA-256, and original episode in
+Initialization records the source reference, checkpoint ID when available,
+SHA-256, original episode, and source/destination board and architecture in
 the saved checkpoint and audit configuration. This is a new training lineage
 at episode zero, not a continuation of DQN episode numbering.
 
 The default device is `auto`. For a controlled throughput comparison, run a
 short attempt with `--device cpu` or `--device mps`. Search evaluates individual
 positions, so GPU availability alone does not establish which is faster.
+
+## Transfer a search champion to a larger board
+
+`--initialize-from` also accepts policy/value checkpoints. It copies the entire
+network, including policy and value heads, while resetting optimizer, replay,
+training RNG (using the new `--seed`) and counters. For example:
+
+```sh
+uv run dots-cordon-search-train \
+  --server 127.0.0.1:50052 \
+  --experiment search-warm-10x15 \
+  --initialize-from champion:search-warm-7x7 \
+  --rows 10 --columns 15 \
+  --episodes 5000 --simulations 64 \
+  --checkpoint-dir checkpoints/search-warm-10x15
+```
+
+Use a new experiment and checkpoint directory to preserve the original run.
+Architecture is inferred from the source; explicit width/depth must match.
+Source bytes are read once, and their exact SHA-256 and transfer provenance are
+saved in checkpoints and audit configuration. No source replay crosses boards.
+The trainer commits `search-0000000.pt` before playing the first training game;
+this contains the transferred weights before any optimization. Transfer creates
+a new episode-zero lineage, not resume ancestry in the source experiment.
+
+After transfer, resume the destination checkpoint with matching board,
+architecture and `--max-turns`; `--resume` never changes those properties.
 
 ## Train from scratch
 

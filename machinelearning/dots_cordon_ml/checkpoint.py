@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import torch
 
@@ -32,7 +32,7 @@ class CheckpointMetadata:
 
 
 def read_checkpoint(
-    path: Path,
+    path: Path | BinaryIO,
     map_location: str | torch.device,
 ) -> tuple[dict[str, Any], CheckpointMetadata]:
     """Read a trusted trainer checkpoint and extract its required metadata."""

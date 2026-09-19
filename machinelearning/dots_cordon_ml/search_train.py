@@ -1,10 +1,11 @@
-"""Continuous search-assisted self-play, with DQN feature transfer or fresh weights."""
+"""Continuous search-assisted self-play, with checkpoint transfer or fresh weights."""
 
 from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 import shutil
@@ -24,6 +25,7 @@ from .audit.integration import (
     ensure_experiment,
     open_audit,
     resolve_checkpoint_reference,
+    resolved_checkpoint_record,
 )
 from .checkpoint import read_checkpoint
 from .environment import GameEnvironment
@@ -60,7 +62,7 @@ def parse_args(arguments=None):
     source.add_argument(
         "--initialize-from",
         type=Path,
-        help="copy only a DQN's feature extractor; reset counters and optimizer",
+        help="transfer search weights or DQN features; reset optimizer, replay and counters",
     )
     source.add_argument(
         "--resume",
@@ -190,26 +192,51 @@ def run(args):
             source_path = resolve_checkpoint_reference(
                 reference, audit, experiment_name=args.experiment
             )
-            payload, metadata = read_checkpoint(source_path, map_location="cpu")
-            if metadata.board != (args.rows, args.columns):
+            if (
+                args.initialize_from
+                and source_path.resolve().parent == args.checkpoint_dir.resolve()
+            ):
+                raise ValueError(
+                    "transfer requires a separate --checkpoint-dir to preserve the source"
+                )
+            source_bytes = source_path.read_bytes()
+            payload, metadata = read_checkpoint(BytesIO(source_bytes), map_location="cpu")
+            if args.resume and metadata.board != (args.rows, args.columns):
                 raise ValueError(
                     "source checkpoint board does not match --rows/--columns"
                 )
-            expected_kind = "policy_value" if args.resume else "dqn"
-            if metadata.kind != expected_kind:
+            if args.resume and metadata.kind != "policy_value":
                 raise ValueError(
-                    f"expected {expected_kind} checkpoint for this initialization mode"
+                    "expected policy_value checkpoint for resume"
                 )
+            if metadata.kind not in ("dqn", "policy_value"):
+                raise ValueError(f"unsupported source checkpoint kind: {metadata.kind}")
+            source_record = resolved_checkpoint_record(audit, reference)
             initialization = (
                 payload.get("initialization", {})
                 if args.resume
                 else {
-                    "kind": "dqn_features",
+                    "kind": "policy_value_weights"
+                    if metadata.kind == "policy_value"
+                    else "dqn_features",
                     "reference": str(reference),
-                    "sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+                    "source_checkpoint_id": (
+                        source_record["id"] if source_record else None
+                    ),
+                    "sha256": hashlib.sha256(source_bytes).hexdigest(),
                     "source_episode": metadata.episode,
+                    "source_board": {
+                        "rows": metadata.rows, "columns": metadata.columns
+                    },
+                    "source_model": {
+                        "kind": metadata.kind,
+                        "channels": metadata.channels,
+                        "blocks": metadata.blocks,
+                    },
+                    "source_game_config": payload.get("game_config", {}),
                 }
             )
+            del source_bytes
         args.channels = (
             args.channels
             if args.channels is not None
@@ -223,6 +250,16 @@ def run(args):
         if metadata and metadata.model != (args.channels, args.blocks):
             raise ValueError(
                 "source checkpoint architecture does not match channels/blocks"
+            )
+        if args.initialize_from:
+            initialization.update(
+                destination_board={"rows": args.rows, "columns": args.columns},
+                destination_model={
+                    "kind": "policy_value",
+                    "channels": args.channels,
+                    "blocks": args.blocks,
+                },
+                destination_game_config={"max_turns": args.max_turns},
             )
         agent = PolicyValueAgent(device, args.channels, args.blocks, args.learning_rate)
         replay = SearchReplay(args.replay_capacity)
@@ -244,7 +281,10 @@ def run(args):
             torch.set_rng_state(payload["rng_state"]["torch"].cpu())
             state = TrainingState(**payload["training_state"])
         elif payload:
-            agent.online.initialize_from_dqn(payload["online"])
+            if metadata.kind == "policy_value":
+                agent.online.load_state_dict(payload["online"])
+            else:
+                agent.online.initialize_from_dqn(payload["online"])
         if state.episode > args.episodes:
             raise ValueError("--episodes must not precede resumed episode")
         del payload

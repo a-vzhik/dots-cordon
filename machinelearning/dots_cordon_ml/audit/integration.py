@@ -91,6 +91,14 @@ def resolve_checkpoint_reference(
     return references[value][0]
 
 
+def resolved_checkpoint_record(
+    service: AuditService | None, reference: str | Path
+) -> dict[str, Any] | None:
+    """Return provenance for an already resolved reference without importing it."""
+    resolved = getattr(service, "_checkpoint_references", {}).get(str(reference))
+    return resolved[1] if resolved else None
+
+
 def checkpoint_record(
     service: AuditService,
     experiment_id: str,

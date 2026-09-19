@@ -1,5 +1,7 @@
 import signal
+import hashlib
 
+import numpy as np
 import pytest
 import torch
 
@@ -11,6 +13,7 @@ from dots_cordon_ml.dqn import DQNAgent
 from dots_cordon_ml.encoding import move_count
 from dots_cordon_ml.environment import StepResult
 from dots_cordon_ml.proto import game_pb2 as pb
+from dots_cordon_ml.search import PolicyValueNetwork
 
 
 class SmallEnvironment:
@@ -322,3 +325,124 @@ def test_standalone_evaluator_records_modes_and_cross_experiment_baseline(tmp_pa
         assert attempt["starting_checkpoint_id"] is None
         assert attempt["config"]["initialization"]["source_episode"] == 100
         assert audit.current_champion(old["id"])["id"] == champion["id"]
+
+
+@pytest.mark.parametrize("rows,columns", [(10, 15), (15, 15)])
+def test_search_transfer_preserves_weights_and_starts_fresh(
+    tmp_path, monkeypatch, rows, columns
+):
+    source_dir, target = tmp_path / "source", tmp_path / "target"
+    search_train.run(arguments(
+        source_dir, "--rows", "7", "--columns", "7", "--max-turns", "2",
+        "--episodes", "1", "--seed", "11",
+    ))
+    source_path = source_dir / "search-latest.pt"
+    source_bytes = source_path.read_bytes()
+    source = load(source_dir)
+    assert source["optimizer"]["state"]
+    original_collect = search_train.collect_episode
+
+    def check_initial_checkpoint(*args, **kwargs):
+        # The durable episode-zero artifact exists before the first game/update.
+        initial = torch.load(target / "search-0000000.pt", weights_only=True)
+        assert initial["training_state"] == {
+            "episode": 0, "environment_steps": 0, "optimization_steps": 0,
+        }
+        assert not initial["optimizer"]["state"]
+        assert initial["replay"] == {}
+        assert initial["rng_state"]["numpy"] == np.random.default_rng(7).bit_generator.state
+        for key, weight in source["online"].items():
+            torch.testing.assert_close(initial["online"][key], weight, rtol=0, atol=0)
+        # Use fork_rng so the verification itself cannot alter learner RNG.
+        with torch.random.fork_rng():
+            torch.manual_seed(7)
+            before = PolicyValueNetwork(4, 0)
+            torch.testing.assert_close(initial["rng_state"]["torch"], torch.get_rng_state())
+            after = PolicyValueNetwork(4, 0)
+            before.load_state_dict(source["online"])
+            after.load_state_dict(initial["online"])
+            with torch.inference_mode():
+                for shape in [(7, 7), (10, 15), (15, 15)]:
+                    inputs = torch.randn(2, before.stem[0].in_channels, *shape)
+                    for expected, actual in zip(before(inputs), after(inputs)):
+                        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        provenance = initial["initialization"]
+        assert provenance["kind"] == "policy_value_weights"
+        assert provenance["source_board"] == {"rows": 7, "columns": 7}
+        assert provenance["destination_board"] == {"rows": rows, "columns": columns}
+        assert provenance["source_model"] == provenance["destination_model"]
+        assert provenance["sha256"] == hashlib.sha256(source_bytes).hexdigest()
+        assert provenance["source_episode"] == 1
+        assert provenance["source_checkpoint_id"] is None
+        return original_collect(*args, **kwargs)
+
+    monkeypatch.setattr(search_train, "collect_episode", check_initial_checkpoint)
+    assert search_train.run(arguments(
+        target, "--initialize-from", str(source_path), "--rows", str(rows),
+        "--columns", str(columns), "--max-turns", "2", "--episodes", "1",
+    )) == 0
+    assert source_path.read_bytes() == source_bytes
+    assert load(target)["replay"]["states"].shape[-2:] == (rows, columns)
+    monkeypatch.setattr(search_train, "collect_episode", original_collect)
+    resumed = tmp_path / "resumed"
+    assert search_train.run(arguments(
+        resumed, "--resume", str(target / "search-latest.pt"), "--rows", str(rows),
+        "--columns", str(columns), "--max-turns", "2", "--episodes", "2",
+    )) == 0
+    assert load(resumed)["training_state"]["episode"] == 2
+    assert load(resumed)["initialization"] == load(target)["initialization"]
+
+
+def test_transfer_audit_records_source_without_resume_ancestry(tmp_path):
+    url = f"sqlite:///{tmp_path / 'audit.sqlite3'}"
+    db = Database(url)
+    db.upgrade()
+    db.close()
+    source_args = arguments(tmp_path / "source", "--database-url", url, "--episodes", "1")
+    source_args.no_audit = False
+    search_train.run(source_args)
+    with AuditService(url) as audit:
+        original = audit.get_experiment("search-self-play")
+        attempt = audit.list_attempts(original["id"])[0]
+        source = next(c for c in audit.list_checkpoints(attempt["id"]) if c["is_final_in_attempt"])
+        champion = audit.bootstrap(original["id"], source["id"])
+    target_args = arguments(
+        tmp_path / "target", "--database-url", url, "--experiment", "larger",
+        "--initialize-from", "champion:search-self-play", "--rows", "3",
+        "--columns", "4", "--max-turns", "2", "--episodes", "1",
+    )
+    target_args.no_audit = False
+    search_train.run(target_args)
+    with AuditService(url) as audit:
+        target = audit.get_experiment("larger")
+        attempt = audit.list_attempts(target["id"])[0]
+        assert attempt["start_episode"] == 0
+        assert attempt["starting_checkpoint_id"] is None
+        assert attempt["config"]["initialization"]["source_checkpoint_id"] == source["id"]
+        checkpoints = audit.list_checkpoints(attempt["id"])
+        initial = next(c for c in checkpoints if c["episode"] == 0)
+        assert initial["parent_checkpoint_id"] is None
+        assert audit.current_champion(original["id"])["id"] == champion["id"]
+        assert audit.current_champion(target["id"]) is None
+
+
+@pytest.mark.parametrize("overrides,error", [
+    (["--rows", "3"], "board"),
+    (["--blocks", "1"], "architecture"),
+])
+def test_resume_rejects_changed_board_or_architecture(tmp_path, overrides, error):
+    search_train.run(arguments(tmp_path / "source", "--episodes", "1"))
+    with pytest.raises(ValueError, match=error):
+        search_train.run(arguments(
+            tmp_path / "target", "--resume", str(tmp_path / "source/search-latest.pt"),
+            *overrides,
+        ))
+
+
+def test_transfer_rejects_source_directory_overwrite(tmp_path):
+    search_train.run(arguments(tmp_path, "--episodes", "1"))
+    source = tmp_path / "search-latest.pt"
+    original_bytes = source.read_bytes()
+    with pytest.raises(ValueError, match="separate --checkpoint-dir"):
+        search_train.run(arguments(tmp_path, "--initialize-from", str(source)))
+    assert source.read_bytes() == original_bytes
