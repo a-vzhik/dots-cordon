@@ -13,7 +13,7 @@ from dots_cordon_ml.dqn import DQNAgent
 from dots_cordon_ml.encoding import move_count
 from dots_cordon_ml.environment import StepResult
 from dots_cordon_ml.proto import game_pb2 as pb
-from dots_cordon_ml.search import PolicyValueNetwork
+from dots_cordon_ml.search import PolicyValueAgent, PolicyValueNetwork
 
 
 class SmallEnvironment:
@@ -261,18 +261,20 @@ def test_resume_rejects_changed_game_rules(tmp_path):
         )
 
 
-def test_standalone_evaluator_records_modes_and_cross_experiment_baseline(tmp_path):
+@pytest.mark.parametrize("kind", ["dqn", "policy_value"])
+def test_standalone_evaluator_records_modes_and_cross_experiment_baseline(tmp_path, kind):
     url = f"sqlite:///{tmp_path / 'audit.sqlite3'}"
     db = Database(url)
     db.upgrade()
     db.close()
-    dqn = DQNAgent(torch.device("cpu"), 1e-3, 0.99, 7, 4, 0)
+    dqn = (DQNAgent(torch.device("cpu"), 1e-3, 0.99, 7, 4, 0)
+           if kind == "dqn" else PolicyValueAgent(torch.device("cpu"), 4, 0))
     source = tmp_path / "dqn.pt"
     torch.save(
         {
             "online": dqn.online.state_dict(),
             "board": {"rows": 2, "columns": 2},
-            "model": {"channels": 4, "blocks": 0},
+            "model": {"kind": kind, "channels": 4, "blocks": 0},
             "training_state": {
                 "episode": 100,
                 "environment_steps": 400,
@@ -320,11 +322,156 @@ def test_standalone_evaluator_records_modes_and_cross_experiment_baseline(tmp_pa
         assert len(evaluations) == 4
         assert {e["opponent_kind"] for e in evaluations} == {"random", "checkpoint"}
         assert all(e["status"] == "completed" for e in evaluations)
+        for evaluation in evaluations:
+            for suite in audit.get_evaluation(evaluation["id"])["suites"]:
+                expected = "uniform_random" if evaluation["opponent_kind"] == "random" else f"greedy_{kind}"
+                assert suite["definition"]["opponent_policy"] == expected
         attempt = audit.list_attempts(experiment["id"])[0]
         assert attempt["start_episode"] == 0
         assert attempt["starting_checkpoint_id"] is None
         assert attempt["config"]["initialization"]["source_episode"] == 100
         assert audit.current_champion(old["id"])["id"] == champion["id"]
+
+
+@pytest.mark.parametrize("kind", ["dqn", "policy_value"])
+def test_baseline_loading_preserves_training_rng_and_checks_rules(tmp_path, kind):
+    from dots_cordon_ml.promotion_evaluation import load_baseline
+
+    agent = (DQNAgent(torch.device("cpu"), 1e-3, 0.99, 7, 4, 0)
+             if kind == "dqn" else PolicyValueAgent(torch.device("cpu"), 4, 0))
+    path = tmp_path / "opponent.pt"
+    torch.save({
+        "online": agent.online.state_dict(), "board": {"rows": 2, "columns": 2},
+        "model": {"kind": kind, "channels": 4, "blocks": 0},
+        "game_config": {"max_turns": 2},
+        "training_state": {"episode": 0, "environment_steps": 0, "optimization_steps": 0},
+    }, path)
+    before = torch.get_rng_state()
+    loaded = load_baseline(path, board=(2, 2), max_turns=2, device=torch.device("cpu"))
+    assert type(loaded) is type(agent)
+    torch.testing.assert_close(torch.get_rng_state(), before, rtol=0, atol=0)
+    with pytest.raises(ValueError, match="board"):
+        load_baseline(path, board=(3, 2), max_turns=2, device=torch.device("cpu"))
+    with pytest.raises(ValueError, match="max-turns"):
+        load_baseline(path, board=(2, 2), max_turns=0, device=torch.device("cpu"))
+
+
+def test_transferred_bootstrap_preserves_incumbent_and_source(tmp_path):
+    url = f"sqlite:///{tmp_path / 'audit.sqlite3'}"
+    db = Database(url)
+    db.upgrade()
+    db.close()
+    source_args = arguments(tmp_path / "source", "--database-url", url, "--episodes", "1")
+    source_args.no_audit = False
+    search_train.run(source_args)
+    with AuditService(url) as audit:
+        source_experiment = audit.get_experiment("search-self-play")
+        source = audit.import_checkpoint(source_experiment["id"], tmp_path / "source/search-latest.pt")
+        original = audit.bootstrap(source_experiment["id"], source["id"])
+    for index in range(2):
+        options = arguments(
+            tmp_path / f"target-{index}", "--database-url", url, "--experiment", "larger",
+            "--initialize-from", "champion:search-self-play", "--rows", "3", "--columns", "4",
+            "--max-turns", "2", "--blocks", "2", "--episodes", "1",
+        )
+        options.no_audit = False
+        options.bootstrap_champion = True
+        search_train.run(options)
+        with AuditService(url) as audit:
+            target = audit.get_experiment("larger")
+            champion = audit.current_champion(target["id"])
+            assert champion["reason"] == "transferred_bootstrap"
+            if index == 0:
+                first = champion
+            assert champion == first
+            checkpoint = audit.get_checkpoint(champion["checkpoint_id"])
+            assert checkpoint["episode"] == 0
+            assert checkpoint["board"] == {"rows": 3, "columns": 4}
+            assert len(audit.champion_history(target["id"])) == 1
+            assert audit.current_champion(source_experiment["id"])["id"] == original["id"]
+            with pytest.raises(ValueError, match="episode-zero"):
+                audit.bootstrap_transferred(target["id"], audit.import_checkpoint(
+                    target["id"], tmp_path / f"target-{index}/search-latest.pt",
+                )["id"])
+    resumed = arguments(
+        tmp_path / "resume-zero", "--database-url", url, "--experiment", "larger",
+        "--resume", f"checkpoint:{first['checkpoint_id']}",
+        "--rows", "3", "--columns", "4", "--max-turns", "2", "--blocks", "2",
+        "--episodes", "1",
+    )
+    resumed.no_audit = False
+    resumed.bootstrap_champion = True
+    assert search_train.run(resumed) == 0
+    with AuditService(url) as audit:
+        assert audit.current_champion(target["id"]) == first
+        bad_rules = audit.ensure_experiment("bad-rules", {"rows": 3, "columns": 4, "max_turns": 0})
+        bad = audit.import_checkpoint(bad_rules["id"], tmp_path / "target-0/search-0000000.pt")
+        with pytest.raises(ValueError, match="board/rules"):
+            audit.bootstrap_transferred(bad_rules["id"], bad["id"])
+        assert audit.current_champion(bad_rules["id"]) is None
+
+        # Two bootstrappers compete for an empty experiment; only one assignment
+        # is ever created, even though their immutable candidate IDs differ.
+        concurrent = audit.ensure_experiment("concurrent", {"rows": 3, "columns": 4, "max_turns": 2})
+        candidates = [audit.import_checkpoint(
+            concurrent["id"], tmp_path / f"target-{index}/search-0000000.pt",
+        )["id"] for index in range(2)]
+    from concurrent.futures import ThreadPoolExecutor
+    def bootstrap(checkpoint_id):
+        with AuditService(url) as audit:
+            return audit.bootstrap_transferred(concurrent["id"], checkpoint_id)
+    with ThreadPoolExecutor(2) as executor:
+        assignments = list(executor.map(bootstrap, candidates))
+    assert assignments[0] == assignments[1]
+    with AuditService(url) as audit:
+        assert len(audit.champion_history(concurrent["id"])) == 1
+
+
+@pytest.mark.parametrize("extra", [[], ["--initialize-from", "source.pt"]])
+def test_bootstrap_cli_requires_audited_source(tmp_path, extra):
+    with pytest.raises(SystemExit):
+        arguments(tmp_path, "--bootstrap-champion", *extra)
+
+
+def test_diagnostic_opponent_is_frozen_across_resume(tmp_path, monkeypatch):
+    url = f"sqlite:///{tmp_path / 'audit.sqlite3'}"
+    db = Database(url)
+    db.upgrade()
+    db.close()
+    search_train.run(arguments(tmp_path / "source", "--episodes", "1"))
+    with AuditService(url) as audit:
+        baseline = audit.ensure_experiment("baseline", {"rows": 2, "columns": 2, "max_turns": 0})
+        original = audit.import_checkpoint(baseline["id"], tmp_path / "source/search-latest.pt")
+        audit.bootstrap(baseline["id"], original["id"])
+    first = arguments(
+        tmp_path / "first", "--database-url", url, "--episodes", "1",
+        "--eval-opponent", "champion:baseline", "--opening-random-moves", "0",
+        "--eval-every", "1", "--eval-games", "2", "--eval-simulations", "0",
+    )
+    first.no_audit = False
+    search_train.run(first)
+    frozen = load(tmp_path / "first")["config"]["frozen_eval_opponent"]
+    assert frozen.startswith("checkpoint:")
+    # A changed/unavailable champion alias must not be resolved by the restart.
+    resolve = search_train.resolve_checkpoint_reference
+    def guard(reference, *args, **kwargs):
+        assert not str(reference).startswith("champion:")
+        return resolve(reference, *args, **kwargs)
+    monkeypatch.setattr(search_train, "resolve_checkpoint_reference", guard)
+    resumed = arguments(
+        tmp_path / "resumed", "--database-url", url,
+        "--resume", str(tmp_path / "first/search-latest.pt"), "--episodes", "2",
+        "--eval-opponent", "champion:baseline", "--opening-random-moves", "0",
+        "--eval-every", "1", "--eval-games", "2", "--eval-simulations", "0",
+    )
+    resumed.no_audit = False
+    search_train.run(resumed)
+    assert load(tmp_path / "resumed")["config"]["frozen_eval_opponent"] == frozen
+    with AuditService(url) as audit:
+        experiment = audit.get_experiment("search-self-play")
+        evaluations = audit.list_evaluations(experiment["id"])
+        opponents = {e["opponent_checkpoint_id"] for e in evaluations if e["opponent_kind"] == "checkpoint"}
+        assert opponents == {frozen.removeprefix("checkpoint:")}
 
 
 @pytest.mark.parametrize("rows,columns", [(10, 15), (15, 15)])

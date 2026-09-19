@@ -76,6 +76,19 @@ def agent_from_checkpoint(checkpoint, metadata, device, seed=0):
     return agent
 
 
+def load_baseline(path, *, board, max_turns, device, seed=0):
+    """Load a compatible greedy diagnostic opponent without advancing learner RNG."""
+    payload, metadata = read_checkpoint(path, map_location="cpu")
+    if metadata.board != board:
+        raise ValueError("evaluation opponent must have matching board dimensions")
+    if payload.get("game_config", {}).get("max_turns", 0) != max_turns:
+        raise ValueError("evaluation opponent must have matching max-turns rules")
+    if metadata.kind not in ("dqn", "policy_value"):
+        raise ValueError(f"unsupported opponent model kind: {metadata.kind}")
+    with torch.random.fork_rng(devices=[]):
+        return agent_from_checkpoint(payload, metadata, device, seed)
+
+
 def _game_environment(
     args: argparse.Namespace,
     metadata: CheckpointMetadata,

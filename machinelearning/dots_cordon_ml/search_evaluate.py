@@ -21,7 +21,7 @@ from .audit.integration import (
 from .checkpoint import read_checkpoint
 from .environment import GameEnvironment
 from .evaluate import _device, _format_stats
-from .head_to_head import _load_agent
+from .promotion_evaluation import load_baseline
 from .search import PolicyValueAgent, SearchPlayer
 from .self_play import evaluate_against_random, evaluate_head_to_head, random_game_seeds
 
@@ -78,7 +78,10 @@ def evaluate(
                 definition["evaluator_version"] = "policy-value-puct-v1"
                 definition["subject_policy"] = config
                 definition["opponent_policy"] = (
-                    "uniform_random" if opponent_name == "random" else "greedy_dqn"
+                    "uniform_random" if opponent_name == "random" else (
+                        "greedy_policy_value"
+                        if isinstance(opponent, PolicyValueAgent) else "greedy_dqn"
+                    )
                 )
                 batch = audit.create_evaluation(
                     experiment_id,
@@ -131,7 +134,7 @@ def parse_args(arguments=None):
     parser.add_argument(
         "--opponent",
         type=Path,
-        help="optional frozen DQN baseline, e.g. champion:default",
+        help="optional frozen DQN or policy/value baseline, e.g. champion:default",
     )
     parser.add_argument("--server", default="127.0.0.1:50051")
     parser.add_argument("--device", default="auto")
@@ -187,18 +190,13 @@ def run(args):
         subject = audit.import_checkpoint(experiment["id"], path) if audit else None
         if args.opponent:
             other_path = resolve_checkpoint_reference(args.opponent, audit)
-            other_payload, other_metadata = read_checkpoint(
-                other_path, map_location="cpu"
-            )
-            if other_metadata.board != metadata.board or other_metadata.kind != "dqn":
-                raise ValueError(
-                    "baseline must be a DQN with matching board dimensions"
-                )
-            opponent = _load_agent(other_path, other_metadata, device, args.seed)
             if audit:
-                opponent_id = audit.import_checkpoint(experiment["id"], other_path)[
-                    "id"
-                ]
+                opponent_id = audit.import_checkpoint(experiment["id"], other_path)["id"]
+                other_path = resolve_checkpoint_reference(f"checkpoint:{opponent_id}", audit)
+            opponent = load_baseline(
+                other_path, board=metadata.board, max_turns=args.max_turns,
+                device=device, seed=args.seed,
+            )
         with GameEnvironment(
             args.server, *metadata.board, args.max_turns, args.rpc_timeout
         ) as environment:

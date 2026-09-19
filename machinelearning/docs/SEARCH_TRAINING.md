@@ -7,7 +7,7 @@ player's perspective, teaches the value function. There are no tactical
 templates, demonstrations, capture bonuses, or scripted opponents in training.
 
 The learner updates between games and retains replay across evaluations.
-Champion acceptance is separate: this command never replaces the DQN champion.
+Champion acceptance is separate: training never replaces an existing champion.
 
 ## Start a run from the existing champion
 
@@ -42,8 +42,10 @@ value heads, optimizer, replay, and episode counters start fresh. The old Q
 head and target network are not reused. Model width/depth are inferred from
 the source. Board dimensions default to 7; explicit transfer can change them.
 
-`champion:default` resolves once per command. Its immutable bytes are used for
-the whole run, even if the old champion loop promotes another checkpoint.
+`champion:default` resolves once. With auditing enabled, the diagnostic opponent's
+immutable checkpoint ID is saved and reused on resume, even if the original
+champion changes. A supplied `--eval-opponent` on resume does not replace that
+saved diagnostic opponent. File-only runs freeze opponents for that invocation.
 Initialization records the source reference, checkpoint ID when available,
 SHA-256, original episode, and source/destination board and architecture in
 the saved checkpoint and audit configuration. This is a new training lineage
@@ -81,6 +83,23 @@ a new episode-zero lineage, not resume ancestry in the source experiment.
 
 After transfer, resume the destination checkpoint with matching board,
 architecture and `--max-turns`; `--resume` never changes those properties.
+
+### Bootstrap the larger-board champion
+
+Add `--bootstrap-champion` to a policy/value transfer to register its committed
+episode-zero checkpoint as the target experiment's initial champion. This is an
+explicit opt-in and requires auditing. It records `transferred_bootstrap`, not
+promotion evidence or larger-board training. The original experiment is unchanged.
+If the target already has a champion, its assignment is preserved atomically.
+Recovery can also use this flag with `--resume` of the transferred episode-zero
+checkpoint; later checkpoints, random starts and DQN feature transfers cannot
+bootstrap through this option.
+
+The initial policy is available as `champion:TARGET_EXPERIMENT` before training
+updates begin, or by its immutable `checkpoint:UUID`. Standalone search evaluation
+accepts either DQN or policy/value baselines, with matching board and `max-turns`
+rules. For a 10×15 experiment, use the transferred 10×15 initial checkpoint as
+the baseline; the source 7×7 checkpoint is not compatible evaluation evidence.
 
 ### Expand the search network's receptive field
 
@@ -170,7 +189,7 @@ Training periodically tests two players separately:
 - `mode=search`: the same network chooses through MCTS, with no root noise and
   the most visited move selected.
 
-Both play paired-seat random suites, plus a frozen DQN baseline when
+Both play paired-seat random suites, plus a frozen DQN or policy/value baseline when
 `--eval-opponent` is supplied. Baseline matches use four paired random opening
 moves by default. The baseline is only an evaluator, not a training opponent.
 Search settings are stored in each suite definition so results from different

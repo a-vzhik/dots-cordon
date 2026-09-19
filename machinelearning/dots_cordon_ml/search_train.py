@@ -30,7 +30,7 @@ from .audit.integration import (
 from .checkpoint import read_checkpoint
 from .environment import GameEnvironment
 from .evaluate import _device
-from .head_to_head import _load_agent
+from .promotion_evaluation import load_baseline
 from .search import MCTS, PolicyValueAgent, SearchReplay, collect_episode
 from .search_evaluate import evaluate
 from .train import TrainingState
@@ -70,6 +70,10 @@ def parse_args(arguments=None):
         type=Path,
         help="restore a search checkpoint, including replay and RNG",
     )
+    parser.add_argument(
+        "--bootstrap-champion", action="store_true",
+        help="initialize the target champion from a transferred episode-zero search checkpoint",
+    )
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--replay-capacity", type=int, default=20000)
@@ -97,11 +101,13 @@ def parse_args(arguments=None):
     parser.add_argument(
         "--eval-opponent",
         type=Path,
-        help="optional frozen DQN baseline, e.g. champion:default",
+        help="optional frozen DQN or policy/value baseline, e.g. champion:default",
     )
     parser.add_argument("--opening-random-moves", type=int, default=4)
     parser.add_argument("--rpc-timeout", type=float, default=10)
     args = parser.parse_args(arguments)
+    if args.bootstrap_champion and (args.no_audit or not (args.initialize_from or args.resume)):
+        parser.error("--bootstrap-champion requires auditing and a transfer or episode-zero resume")
     for key in (
         "episodes",
         "batch_size",
@@ -297,6 +303,11 @@ def run(args):
             random.bit_generator.state = payload["rng_state"]["numpy"]
             torch.set_rng_state(payload["rng_state"]["torch"].cpu())
             state = TrainingState(**payload["training_state"])
+            # Audited diagnostics retain their immutable initial opponent across
+            # process boundaries, even when the supplied champion alias changes.
+            frozen_opponent = payload.get("config", {}).get("frozen_eval_opponent")
+            if frozen_opponent and audit:
+                args.eval_opponent = Path(frozen_opponent)
         elif payload:
             if metadata.kind == "policy_value":
                 agent.online.initialize_from_policy_value(
@@ -306,6 +317,11 @@ def run(args):
                 agent.online.initialize_from_dqn(payload["online"])
         if state.episode > args.episodes:
             raise ValueError("--episodes must not precede resumed episode")
+        if args.bootstrap_champion and (
+            audit is None or state.episode != 0
+            or initialization.get("kind") != "policy_value_weights"
+        ):
+            raise ValueError("--bootstrap-champion requires an audited episode-zero search transfer")
         del payload
         experiment, parent = None, None
         if audit:
@@ -314,6 +330,18 @@ def run(args):
                 parent = checkpoint_record(
                     audit, experiment["id"], args.resume, path=source_path
                 )
+        opponent, opponent_id = None, None
+        if args.eval_opponent:
+            path = resolve_checkpoint_reference(args.eval_opponent, audit)
+            if audit:
+                opponent_id = audit.import_checkpoint(experiment["id"], path)["id"]
+                args.frozen_eval_opponent = f"checkpoint:{opponent_id}"
+                path = resolve_checkpoint_reference(args.frozen_eval_opponent, audit)
+            opponent = load_baseline(
+                path, board=(args.rows, args.columns), max_turns=args.max_turns,
+                device=device, seed=args.evaluation_seed,
+            )
+        if audit:
             config = {
                 **effective_config(args),
                 "algorithm": "policy_value_puct_v1",
@@ -331,20 +359,6 @@ def run(args):
                 f"audit experiment={experiment['name']} attempt={attempt['id']}",
                 flush=True,
             )
-        opponent, opponent_id = None, None
-        if args.eval_opponent:
-            path = resolve_checkpoint_reference(args.eval_opponent, audit)
-            _, other_metadata = read_checkpoint(path, map_location="cpu")
-            if other_metadata.kind != "dqn" or other_metadata.board != (
-                args.rows,
-                args.columns,
-            ):
-                raise ValueError(
-                    "evaluation opponent must be a DQN with matching board"
-                )
-            opponent = _load_agent(path, other_metadata, device, args.evaluation_seed)
-            if audit:
-                opponent_id = audit.import_checkpoint(experiment["id"], path)["id"]
         args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         stop_requested = False
 
@@ -473,6 +487,15 @@ def _train(
             args.noise_fraction,
         )
         save()
+        if args.bootstrap_champion:
+            # On an episode-zero resume use the original immutable checkpoint,
+            # retaining the assignment identity across recovery attempts.
+            bootstrap_id = parent["id"] if parent else checkpoint_id
+            assignment = audit.bootstrap_transferred(experiment["id"], bootstrap_id)
+            print(
+                f"champion assignment={assignment['id']} checkpoint={assignment['checkpoint_id']} "
+                f"reason={assignment['reason']}", flush=True,
+            )
 
         def evaluate_current():
             cp = save()

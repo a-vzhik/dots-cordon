@@ -586,6 +586,56 @@ class AuditService:
                 raise PromotionConflict("Champion changed while bootstrapping")
             return assignment
 
+    def bootstrap_transferred(self, experiment_id, checkpoint_id) -> dict:
+        """Install a transferred episode-zero policy, preserving any incumbent.
+
+        This is initialization evidence, never a promotion contest. Validation and
+        the champion check share the experiment lock with ordinary promotion.
+        """
+        with self._repositories() as (repository, blobs):
+            repository.lock_experiment(experiment_id)
+            checkpoint = repository.get_checkpoint(checkpoint_id)
+            _same_experiment(checkpoint, experiment_id, "Checkpoint")
+            experiment = repository.get_experiment(experiment_id)
+            payload, metadata = read_checkpoint(
+                BytesIO(blobs.get(checkpoint["checkpoint_blob_id"])),
+                map_location="cpu",
+            )
+            initialization = payload.get("initialization", {})
+            if (
+                metadata.kind != "policy_value"
+                or metadata.episode != 0
+                or metadata.environment_steps != 0
+                or metadata.optimization_steps != 0
+                or initialization.get("kind") != "policy_value_weights"
+                or initialization.get("source_model", {}).get("kind") != "policy_value"
+                or not initialization.get("sha256")
+            ):
+                raise AuditError("Transferred bootstrap requires an episode-zero search transfer")
+            game_config = experiment["game_config"]
+            if (
+                metadata.board != (game_config["rows"], game_config["columns"])
+                or payload.get("game_config", {}).get("max_turns", 0)
+                != game_config.get("max_turns", 0)
+            ):
+                raise AuditError("Transferred bootstrap must match experiment board/rules")
+            current = experiment["current_champion_assignment_id"]
+            if current:
+                return repository.get_assignment(current)
+            timestamp = now()
+            assignment = repository.add_assignment(
+                dict(
+                    id=new_id(), experiment_id=experiment_id, generation=1,
+                    checkpoint_id=checkpoint_id, reason="transferred_bootstrap",
+                    created_at=timestamp,
+                )
+            )
+            if not repository.compare_and_set_champion(
+                experiment_id, None, assignment["id"], timestamp
+            ):
+                raise PromotionConflict("Champion changed while bootstrapping transfer")
+            return assignment
+
     def reserve_suite_seeds(self, experiment_id, kind, count, base) -> tuple[int, ...]:
         if count < 1:
             raise AuditError("Seed count must be positive")
