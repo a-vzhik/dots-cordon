@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
+	"github.com/a-vzhik/dots-cordon/engine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -33,6 +34,35 @@ func TestResetGameClearsBoardAndTurn(t *testing.T) {
 	assert.Equal(t, gameID, reset.GetGame().GetGameId())
 	assert.Zero(t, reset.GetGame().GetTurn())
 	assert.Equal(t, []byte{0, 0, 0, 0, 0, 0}, reset.GetGame().GetBoard().GetCells())
+}
+
+func TestResetGamePreservesConfigurationAndRecreatesRecorder(t *testing.T) {
+	var recordedIDs []string
+	recorder := &countingRecorder{}
+	service := NewService(1, WithRecorderFactory(func(gameID string) engine.Recorder {
+		recordedIDs = append(recordedIDs, gameID)
+		return recorder
+	}))
+	ctx := context.Background()
+	created, err := service.CreateGame(ctx, &dotscordonv1.CreateGameRequest{Rows: 2, Columns: 3, MaxTurns: 1})
+	require.NoError(t, err)
+	request := &dotscordonv1.MakeMoveRequest{GameId: created.Game.GameId, Position: &dotscordonv1.Coordinate{}}
+	_, err = service.MakeMove(ctx, request)
+	require.NoError(t, err)
+
+	reset, err := service.ResetGame(ctx, &dotscordonv1.ResetGameRequest{GameId: created.Game.GameId})
+	require.NoError(t, err)
+	require.Equal(t, created.Game.GameId, reset.Game.GameId)
+	require.Equal(t, uint32(2), reset.Game.Board.Rows)
+	require.Equal(t, uint32(3), reset.Game.Board.Columns)
+	require.Equal(t, []uint32{0, 0}, reset.Game.Scores)
+	require.Equal(t, []string{created.Game.GameId, created.Game.GameId}, recordedIDs)
+	require.Equal(t, int32(2), recorder.starts.Load())
+
+	moved, err := service.MakeMove(ctx, request)
+	require.NoError(t, err)
+	require.True(t, moved.Game.Terminal)
+	require.Equal(t, dotscordonv1.TerminationReason_TERMINATION_REASON_TURN_LIMIT, moved.Game.TerminationReason)
 }
 
 func TestTerminationReasonAndReset(t *testing.T) {
@@ -76,22 +106,17 @@ func TestTerminationReasonAndReset(t *testing.T) {
 	)
 }
 
-func TestResetGameRejectsBusySession(t *testing.T) {
-	service, session := newTestLockedSession(t)
-	request := &dotscordonv1.ResetGameRequest{GameId: session.id}
-	response, err := service.ResetGame(context.Background(), request)
-	require.Nil(t, response)
-	require.ErrorIs(t, err, ErrSessionBusy)
-	require.True(t, session.IsAcquired(), "failed acquisition released another caller's lock")
-
-	stored, err := service.getSession(session.id)
-	require.NoError(t, err)
-	require.Same(t, session, stored)
-	require.False(t, session.deleted)
-	require.Zero(t, session.turn)
-
-	require.NoError(t, session.ReleaseLock())
-	_, err = service.ResetGame(context.Background(), request)
-	require.NoError(t, err)
-	require.False(t, session.IsAcquired())
+func TestResetGameWaitsForInFlightMove(t *testing.T) {
+	service, gameID, finishMove := newTestBlockedGame(t)
+	pending := startTestCall(func() (*dotscordonv1.ResetGameResponse, error) {
+		return service.ResetGame(context.Background(), &dotscordonv1.ResetGameRequest{GameId: gameID})
+	})
+	requireCallPending(t, pending)
+	first := finishMove()
+	require.Equal(t, uint32(1), first.Game.Turn)
+	result := <-pending
+	require.NoError(t, result.err)
+	require.Equal(t, gameID, result.response.Game.GameId)
+	require.Zero(t, result.response.Game.Turn)
+	require.Equal(t, []byte{0, 0, 0, 0}, result.response.Game.Board.Cells)
 }

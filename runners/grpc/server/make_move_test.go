@@ -144,22 +144,16 @@ func TestConcurrentMovesFromSameObservationApplyOnlyOnce(t *testing.T) {
 	assert.Equal(t, uint32(1), got.GetGame().GetTurn())
 }
 
-func TestMakeMoveRejectsBusySession(t *testing.T) {
-	service, session := newTestLockedSession(t)
-	request := &dotscordonv1.MakeMoveRequest{GameId: session.id, Position: &dotscordonv1.Coordinate{}}
-	response, err := service.MakeMove(context.Background(), request)
-	require.Nil(t, response)
-	require.ErrorIs(t, err, ErrSessionBusy)
-	require.True(t, session.IsAcquired(), "failed acquisition released another caller's lock")
-
-	stored, err := service.getSession(session.id)
-	require.NoError(t, err)
-	require.Same(t, session, stored)
-	require.False(t, session.deleted)
-	require.Zero(t, session.turn)
-
-	require.NoError(t, session.ReleaseLock())
-	_, err = service.MakeMove(context.Background(), request)
-	require.NoError(t, err)
-	require.False(t, session.IsAcquired())
+func TestMakeMoveWaitsForInFlightMove(t *testing.T) {
+	service, gameID, finishMove := newTestBlockedGame(t)
+	pending := startTestCall(func() (*dotscordonv1.MakeMoveResponse, error) {
+		return service.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{GameId: gameID, ExpectedTurn: 1, Position: &dotscordonv1.Coordinate{Column: 1}})
+	})
+	requireCallPending(t, pending)
+	first := finishMove()
+	require.Equal(t, uint32(1), first.Game.Turn)
+	result := <-pending
+	require.NoError(t, result.err)
+	require.Equal(t, uint32(2), result.response.Game.Turn)
+	require.Equal(t, []byte{1, 2, 0, 0}, result.response.Game.Board.Cells)
 }

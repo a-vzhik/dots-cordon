@@ -10,7 +10,7 @@ import (
 )
 
 // SimulateMove reconstructs an isolated engine state. Search does not allocate
-// sessions, consume maxGames, invoke recorders, or mutate any live game.
+// server records, consume maxGames, invoke recorders, or mutate any live game.
 // Structural validation does not certify that a supplied position is reachable.
 func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.SimulateMoveRequest) (*dotscordonv1.MakeMoveResponse, error) {
 	if err := ctx.Err(); err != nil {
@@ -34,20 +34,17 @@ func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.Simula
 	if state.Terminal || (request.MaxTurns > 0 && state.Turn >= request.MaxTurns) {
 		return nil, status.Error(codes.FailedPrecondition, "cannot simulate a terminal position")
 	}
-	session, err := newGameSession("", uint8(board.Rows), uint8(board.Columns), request.MaxTurns, nil)
-	if err != nil {
-		return nil, err
-	}
-	if !session.TryAcquireLock() {
-		return nil, ErrSessionBusy
-	}
-	defer session.ReleaseLock()
+	game := engine.NewGame(
+		engine.NewGameField(uint8(board.Columns), uint8(board.Rows)),
+		[]*engine.Player{{Color: engine.BlueColor}, {Color: engine.RedColor}},
+		engine.NoopGameRecorder{},
+	)
 	placed := uint32(0)
 	for index, value := range board.Cells {
 		if value > byte(dotscordonv1.Cell_CELL_DEAD_PLAYER_1) {
 			return nil, status.Error(codes.InvalidArgument, "invalid cell value")
 		}
-		dot := &session.game.GameField.Dots[index/int(board.Columns)][index%int(board.Columns)]
+		dot := &game.GameField.Dots[index/int(board.Columns)][index%int(board.Columns)]
 		dot.Killed = value >= byte(dotscordonv1.Cell_CELL_DEAD_EMPTY)
 		switch dotscordonv1.Cell(value) {
 		case dotscordonv1.Cell_CELL_PLAYER_0, dotscordonv1.Cell_CELL_DEAD_PLAYER_0:
@@ -62,9 +59,7 @@ func (s *Service) SimulateMove(ctx context.Context, request *dotscordonv1.Simula
 		return nil, status.Error(codes.InvalidArgument, "turn does not match placed dots")
 	}
 
-	session.turn = state.Turn
-	session.current = engine.PlayerIndex(state.CurrentPlayer)
-	session.game.Players[0].Score = state.Scores[0]
-	session.game.Players[1].Score = state.Scores[1]
-	return session.move(request.Position)
+	game.Players[0].Score = state.Scores[0]
+	game.Players[1].Score = state.Scores[1]
+	return applyMove(game, "", state.Turn, request.MaxTurns, request.Position)
 }

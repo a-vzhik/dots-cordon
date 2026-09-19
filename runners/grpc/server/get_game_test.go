@@ -31,22 +31,16 @@ func TestGetGameReturnsCurrentState(t *testing.T) {
 	assert.Equal(t, uint32(1), got.GetGame().GetTurn())
 }
 
-func TestGetGameRejectsBusySession(t *testing.T) {
-	service, session := newTestLockedSession(t)
-	request := &dotscordonv1.GetGameRequest{GameId: session.id}
-	response, err := service.GetGame(context.Background(), request)
-	require.Nil(t, response)
-	require.ErrorIs(t, err, ErrSessionBusy)
-	require.True(t, session.IsAcquired(), "failed acquisition released another caller's lock")
-
-	stored, err := service.getSession(session.id)
-	require.NoError(t, err)
-	require.Same(t, session, stored)
-	require.False(t, session.deleted)
-	require.Zero(t, session.turn)
-
-	require.NoError(t, session.ReleaseLock())
-	_, err = service.GetGame(context.Background(), request)
-	require.NoError(t, err)
-	require.False(t, session.IsAcquired())
+func TestGetGameWaitsForInFlightMove(t *testing.T) {
+	service, gameID, finishMove := newTestBlockedGame(t)
+	pending := startTestCall(func() (*dotscordonv1.GetGameResponse, error) {
+		return service.GetGame(context.Background(), &dotscordonv1.GetGameRequest{GameId: gameID})
+	})
+	requireCallPending(t, pending)
+	first := finishMove()
+	require.Equal(t, uint32(1), first.Game.Turn)
+	result := <-pending
+	require.NoError(t, result.err)
+	require.Equal(t, uint32(1), result.response.Game.Turn)
+	require.Equal(t, []byte{1, 0, 0, 0}, result.response.Game.Board.Cells)
 }

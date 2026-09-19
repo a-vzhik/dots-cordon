@@ -15,24 +15,17 @@ func (s *Service) DeleteGame(
 	if request == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if request.GetGameId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "game_id is required")
+	record, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
+	if err != nil {
+		return nil, err
 	}
+	defer record.lock.ReleaseLock()
 
+	// Requests that already found this record must observe deletion when they
+	// acquire its lock. The map lock is held only for removal, never waiting.
+	record.deleted = true
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	session := s.games[request.GetGameId()]
-	if session == nil {
-		return nil, gameNotFound(request.GetGameId())
-	}
-	// Holding the store lock while marking the session deleted makes deletion
-	// linearizable with a concurrent getSession call.
-	if !session.TryAcquireLock() {
-		return nil, ErrSessionBusy
-	}
-	defer session.ReleaseLock()
-	session.deleted = true
 	delete(s.games, request.GetGameId())
-
+	s.mu.Unlock()
 	return &dotscordonv1.DeleteGameResponse{}, nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 
 	dotscordonv1 "github.com/a-vzhik/dots-cordon/api/dotscordon/v1"
+	"github.com/a-vzhik/dots-cordon/engine"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -52,25 +53,27 @@ func (s *Service) CreateGame(
 		}
 	}
 
-	session, err := newGameSession(
-		gameID,
-		uint8(request.GetRows()),
-		uint8(request.GetColumns()),
-		request.GetMaxTurns(),
-		s.recorderFactory,
-	)
-	if err != nil {
-		return nil, err
+	record := &gameRecord{
+		lock:     &inProcessLock{},
+		game:     s.newGame(gameID, uint8(request.GetRows()), uint8(request.GetColumns())),
+		maxTurns: request.GetMaxTurns(),
 	}
-	if !session.TryAcquireLock() {
-		return nil, ErrSessionBusy
-	}
-	defer session.ReleaseLock()
-	snapshot, err := session.snapshot()
-	if err != nil {
-		return nil, err
-	}
-	s.games[gameID] = session
+	s.games[gameID] = record
+	return &dotscordonv1.CreateGameResponse{
+		Game: gameStateToProto(gameID, record.game, record.turn, record.maxTurns),
+	}, nil
+}
 
-	return &dotscordonv1.CreateGameResponse{Game: snapshot}, nil
+func (s *Service) newGame(gameID string, rows, columns uint8) *engine.Game {
+	recorder := engine.Recorder(engine.NoopGameRecorder{})
+	if s.recorderFactory != nil {
+		if configured := s.recorderFactory(gameID); configured != nil {
+			recorder = configured
+		}
+	}
+	return engine.NewGame(
+		engine.NewGameField(columns, rows),
+		[]*engine.Player{{Color: engine.BlueColor}, {Color: engine.RedColor}},
+		recorder,
+	)
 }

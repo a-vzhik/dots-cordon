@@ -8,12 +8,11 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var (
-	// ErrLockNotAcquired indicates an operation requires an acquired session lock.
-	ErrLockNotAcquired = status.Error(codes.FailedPrecondition, "session lock must be acquired")
-	// ErrSessionBusy indicates the session lock is already acquired.
-	ErrSessionBusy = status.Error(codes.FailedPrecondition, "session lock is already acquired")
-)
+// ErrLockNotAcquired indicates an operation requires an acquired game lock.
+var ErrLockNotAcquired = status.Error(codes.FailedPrecondition, "game lock must be acquired")
+
+// ErrLockTimeout indicates the game lock could not be acquired within the timeout.
+var ErrLockTimeout = status.Error(codes.DeadlineExceeded, "timed out waiting for game lock")
 
 func gameNotFound(gameID string) error {
 	return status.Errorf(codes.NotFound, "game %q not found", gameID)

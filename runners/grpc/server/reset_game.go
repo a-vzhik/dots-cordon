@@ -16,25 +16,15 @@ func (s *Service) ResetGame(
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
-	session, err := s.getSession(request.GetGameId())
+	record, err := s.tryLockGame(request.GetGameId(), gameLockTimeout)
 	if err != nil {
 		return nil, err
 	}
-
-	if !session.TryAcquireLock() {
-		return nil, ErrSessionBusy
-	}
-	defer session.ReleaseLock()
-	if session.deleted {
-		return nil, gameNotFound(request.GetGameId())
-	}
-
-	if err := session.reset(); err != nil {
-		return nil, err
-	}
-	snapshot, err := session.snapshot()
-	if err != nil {
-		return nil, err
-	}
-	return &dotscordonv1.ResetGameResponse{Game: snapshot}, nil
+	defer record.lock.ReleaseLock()
+	field := record.game.GameField
+	record.game = s.newGame(request.GetGameId(), field.Height, field.Width)
+	record.turn = 0
+	return &dotscordonv1.ResetGameResponse{
+		Game: gameStateToProto(request.GetGameId(), record.game, record.turn, record.maxTurns),
+	}, nil
 }

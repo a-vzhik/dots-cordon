@@ -58,3 +58,37 @@ func coordinateToProto(coord engine.Coord) *dotscordonv1.Coordinate {
 		Column: uint32(coord.Col),
 	}
 }
+
+func gameStateToProto(gameID string, game *engine.Game, turn, maxTurns uint32) *dotscordonv1.GameState {
+	field := game.GameField
+	cells := make([]byte, 0, int(field.Width)*int(field.Height))
+	for _, row := range field.Dots {
+		for _, dot := range row {
+			cells = append(cells, byte(cellToProto(dot)))
+		}
+	}
+	termination := gameTerminationReason(game, turn, maxTurns)
+	return &dotscordonv1.GameState{
+		GameId: gameID,
+		Board: &dotscordonv1.Board{
+			Rows:    uint32(field.Height),
+			Columns: uint32(field.Width),
+			Cells:   cells,
+		},
+		Scores:            []uint32{game.Players[0].Score, game.Players[1].Score},
+		CurrentPlayer:     turn % 2,
+		Turn:              turn,
+		Terminal:          termination != dotscordonv1.TerminationReason_TERMINATION_REASON_UNSPECIFIED,
+		TerminationReason: termination,
+	}
+}
+
+func gameTerminationReason(game *engine.Game, turn, maxTurns uint32) dotscordonv1.TerminationReason {
+	if game.GameField.IsFull() {
+		return dotscordonv1.TerminationReason_TERMINATION_REASON_BOARD_FULL
+	}
+	if maxTurns > 0 && turn >= maxTurns {
+		return dotscordonv1.TerminationReason_TERMINATION_REASON_TURN_LIMIT
+	}
+	return dotscordonv1.TerminationReason_TERMINATION_REASON_UNSPECIFIED
+}

@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestDeleteGameRemovesSession(t *testing.T) {
+func TestDeleteGameRemovesGame(t *testing.T) {
 	client := newTestClient(t, 10)
 
 	created, err := client.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{
@@ -28,22 +28,36 @@ func TestDeleteGameRemovesSession(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
-func TestDeleteGameRejectsBusySession(t *testing.T) {
-	service, session := newTestLockedSession(t)
-	request := &dotscordonv1.DeleteGameRequest{GameId: session.id}
-	response, err := service.DeleteGame(context.Background(), request)
-	require.Nil(t, response)
-	require.ErrorIs(t, err, ErrSessionBusy)
-	require.True(t, session.IsAcquired(), "failed acquisition released another caller's lock")
+func TestDeleteGameWaitsForInFlightMove(t *testing.T) {
+	service, gameID, finishMove := newTestBlockedGame(t)
+	pending := startTestCall(func() (*dotscordonv1.DeleteGameResponse, error) {
+		return service.DeleteGame(context.Background(), &dotscordonv1.DeleteGameRequest{GameId: gameID})
+	})
+	requireCallPending(t, pending)
+	first := finishMove()
+	require.Equal(t, uint32(1), first.Game.Turn)
+	result := <-pending
+	require.NoError(t, result.err)
+	_, err := service.GetGame(context.Background(), &dotscordonv1.GetGameRequest{GameId: gameID})
+	require.Equal(t, codes.NotFound, status.Code(err))
+}
 
-	stored, err := service.getSession(session.id)
-	require.NoError(t, err)
-	require.Same(t, session, stored)
-	require.False(t, session.deleted)
-	require.Zero(t, session.turn)
+func TestWaitingDeleteDoesNotBlockOtherGames(t *testing.T) {
+	service, gameID, finishMove := newTestBlockedGame(t)
+	deletion := startTestCall(func() (*dotscordonv1.DeleteGameResponse, error) {
+		return service.DeleteGame(context.Background(), &dotscordonv1.DeleteGameRequest{GameId: gameID})
+	})
+	requireCallPending(t, deletion)
 
-	require.NoError(t, session.ReleaseLock())
-	_, err = service.DeleteGame(context.Background(), request)
+	// Creation and moving another game must succeed before the first move ends.
+	created, err := service.CreateGame(context.Background(), &dotscordonv1.CreateGameRequest{Rows: 2, Columns: 2})
 	require.NoError(t, err)
-	require.False(t, session.IsAcquired())
+	moved, err := service.MakeMove(context.Background(), &dotscordonv1.MakeMoveRequest{
+		GameId: created.Game.GameId, Position: &dotscordonv1.Coordinate{},
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint32(1), moved.Game.Turn)
+
+	finishMove()
+	require.NoError(t, (<-deletion).err)
 }
