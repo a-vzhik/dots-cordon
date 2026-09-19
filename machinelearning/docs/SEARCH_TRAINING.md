@@ -7,7 +7,148 @@ player's perspective, teaches the value function. There are no tactical
 templates, demonstrations, capture bonuses, or scripted opponents in training.
 
 The learner updates between games and retains replay across evaluations.
-Champion acceptance is separate: training never replaces an existing champion.
+Champion acceptance is separate: a training child never replaces an existing
+champion. Use `dots-cordon-search-loop` for the sequential train/evaluate/promote
+workflow below. The standalone `dots-cordon-search-train` remains available for
+continuous training and optional diagnostic evaluations.
+
+## Run the train/evaluate/promote supervisor
+
+`dots-cordon-search-loop` invokes bounded training, evaluation and promotion as
+separate processes. It trains 100 episodes per round in the example below,
+checkpoints, screens against random, challenges the current champion, and uses
+extended head-to-head only for borderline improvements. It finishes the decision
+before training the next round. Promotion evaluates the **neural policy alone**;
+training uses MCTS. Learner state continues after either promotion or rejection.
+
+Start the updated Go server from the repository root:
+
+```sh
+go run ./runners/grpc --listen=127.0.0.1:50052 --max-games=4 --quiet
+```
+
+From `machinelearning/`, install CLI entrypoints and upgrade the existing audit
+schema (including the bounded-operation journal):
+
+```sh
+uv sync
+uv run dots-cordon-audit db upgrade
+```
+
+Create the request **once**. Adjust the source experiment, destination, target
+board and budgets below before generating it. The example resolves the source
+champion to an immutable ID, keeps its width, expands to at least seven blocks,
+and freezes all effective settings into JSON. It assumes an audited policy/value
+champion; import a file first with `dots-cordon-audit import --experiment SOURCE
+--checkpoint /absolute/path/search.pt`, and use that returned checkpoint ID if
+there is no registered source champion. Use `DOTS_CORDON_DATABASE_URL` consistently
+for this preparation and the loop when using a non-default database.
+
+```sh
+uv run python - <<'PYTHON'
+import json
+from pathlib import Path
+from dots_cordon_ml.audit import AuditService
+from dots_cordon_ml.search_train import parse_args
+from dots_cordon_ml.training import TRAINING_CONFIG_FIELDS
+from dots_cordon_ml.search_loop import validate_request
+
+source_experiment = "search-warm-7x7"
+target_experiment = "search-warm-15x15"
+with AuditService() as audit:
+    source = audit.current_champion(audit.get_experiment(source_experiment)["id"])
+    if source is None:
+        raise ValueError("Source experiment has no champion")
+    checkpoint = audit.get_checkpoint(source["checkpoint_id"])
+    if checkpoint["model"].get("kind") != "policy_value":
+        raise ValueError("This bootstrap example requires a search champion")
+
+output = Path("checkpoints") / target_experiment
+args = parse_args([
+    "--server", "127.0.0.1:50052", "--device", "cpu",
+    "--rows", "15", "--columns", "15", "--max-turns", "0",
+    "--channels", str(checkpoint["model"]["channels"]),
+    "--blocks", str(max(7, checkpoint["model"]["blocks"])),
+    "--simulations", "64", "--checkpoint-every", "100",
+    "--checkpoint-dir", str(output.resolve()), "--bootstrap-champion",
+    "--initialize-from", "checkpoint:" + checkpoint["id"],
+])
+training = {key: getattr(args, key) for key in TRAINING_CONFIG_FIELDS}
+training["checkpoint_dir"] = str(training["checkpoint_dir"])
+evaluation = {}
+for stage, suites, seed in [
+    ("screening", 3, 30000001),
+    ("head_to_head", 3, 40000001),
+    ("extended_head_to_head", 10, 50000001),
+]:
+    evaluation[stage] = {
+        "server": args.server, "rows": args.rows, "columns": args.columns,
+        "max_turns": args.max_turns, "mode": "policy", "device": args.device,
+        "games": 1000, "suites": suites, "seed": seed,
+        "opening_random_moves": 0 if stage == "screening" else 4,
+        "paired_seats": True, "evaluation_workers": 4, "rpc_timeout": 10.0,
+    }
+request = {
+    "version": 1, "run_id": target_experiment + "-run-001",
+    "experiment": target_experiment,
+    "source": {"mode": "initialize", "checkpoint_id": checkpoint["id"]},
+    "total_episode": 5000, "round_episodes": 100,
+    "training_config": training, "evaluation_config": evaluation,
+    "gates": {"screen_max_regression": 0.003,
+              "promotion_min_match_score": 0.52, "promotion_min_suite_wins": 2},
+    "work_dir": str((output / "operations").resolve()),
+}
+validate_request(request)
+Path("search-loop-request.json").write_text(json.dumps(request, indent=2) + "\n")
+PYTHON
+
+uv run dots-cordon-search-loop \
+  --request search-loop-request.json --result search-loop-result.json
+```
+
+These are example budgets, not throughput recommendations. `games` is per suite,
+so screening plays twice the configured games/suites (champion and candidate).
+The complete generated request is reviewable before starting. The generator
+captures current defaults once; later rounds use the saved settings, not changing
+CLI defaults. Gates do not inherit overrides from older experiments. Set the
+regression tolerance explicitly to `0.005` if retaining that previous-run policy.
+The lower-level unit JSON formats are documented below.
+
+The request is immutable for its `run_id`. `total_episode` is an absolute learner
+target; the final round is shorter when necessary. After transfer, targets start
+at 100, 200, etc. To continue an already completed loop, create a new request with
+a new `run_id`, a larger total, `source.mode: "resume"`, the previous result's
+`learner_checkpoint_id`, and `bootstrap_champion: false`. Carry forward all other
+effective settings. Resume retains network, optimizer, replay, RNG and counters.
+The promoted evaluation checkpoint is a separate audit record: learner continuity
+always uses the original training checkpoint even when a candidate is rejected.
+
+### Stop and recover the supervisor
+
+SIGINT/Ctrl-C and SIGTERM are forwarded to the active child. The supervisor waits
+for it to exit gracefully and writes `status: "paused"`; training saves a partial
+checkpoint after its current episode. Child failure also pauses, with the pending
+stage and error in the result. Exit code 0 means the complete target and its last
+evaluation decision finished; a paused loop exits 1. Fix the underlying failure,
+then rerun **the same request** to resume that stage and its original target.
+
+The database operation journal is authoritative. Child requests are saved before
+launch, and completed checkpoints, evaluation batches and promotions are recovered
+even if a child died before acknowledgement. Completed work is not repeated. A
+partially completed evaluation is replaced with fresh suites while preserving its
+earlier evidence. Recovery reconciles a pending promotion before checking whether
+the champion changed; its own successful promotion is not mistaken for an external
+change. A genuinely changed incumbent starts a fresh contest with the same learner
+checkpoint and new seeds, without retraining that round.
+
+One local supervisor per run and one process per child operation are enforced by
+OS locks (same OS user and canonical database URL). If the supervisor is forcibly
+killed while a child is still alive, a restart cannot execute that child twice:
+it pauses on the child lock; retry after the old child exits. This is local process
+orchestration, with no queue, distributed lease, watcher, or concurrent training.
+Request/result files in `work_dir` are transport artifacts; the audit database owns
+the persisted configuration, pending stage, round history and decisions. Normal
+audit attempts and evaluations remain visible in the existing dashboard.
 
 ## Start a run from the existing champion
 

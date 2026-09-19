@@ -1,9 +1,13 @@
 # Dots Cordon training
 
 For the new policy/value model trained through search-assisted self-play, see
-[Search-assisted self-play](SEARCH_TRAINING.md). It supports transferring the
-existing DQN feature extractor, continuous learning with persisted replay, and
-separate evaluations of the neural policy and the policy with search.
+[Search-assisted self-play](docs/SEARCH_TRAINING.md). Its
+[`dots-cordon-search-loop` supervisor](docs/SEARCH_TRAINING.md#run-the-trainevaluatepromote-supervisor)
+trains bounded rounds in child processes, evaluates immediately, and promotes
+passing candidates. It supports larger-board transfer and depth expansion,
+retains learner replay/optimizer/RNG across rounds, and recovers interrupted work.
+Standalone search training and evaluation remain available. The commands and
+replay limitations below describe the older DQN workflow.
 
 To play against a trained model in the terminal, use the
 [CLI model player](../README.md#cli-runner). Export `champion:EXPERIMENT`,
@@ -110,16 +114,16 @@ an interrupted attempt under its original ID is not implemented yet.
 
 The database stores the exact serialized checkpoint as a BLOB: online and target
 weights, optimizer, training counters, model/board metadata, and saved random
-state. The replay buffer remains excluded. Recorded checkpoints can be restored
-or exported after their original `.pt` files have been removed. Evaluation
+state. The DQN replay buffer remains excluded; search-training checkpoints include
+it. Recorded checkpoints can be restored or exported after their original `.pt` files have been removed. Evaluation
 records retain exact per-seat counts, score-difference sums, seeds, and test
 settings; champion-loop decisions retain their thresholds and evidence.
 
 Ctrl-C finishes the current training episode, saves its endpoint, and records
 the attempt as interrupted. A hard kill preserves only previously committed
 checkpoints/results and can leave the attempt's last recorded status as
-running. Automatic recovery or reconciliation after a hard kill is not yet
-implemented; start a new attempt from a recorded checkpoint to continue work.
+running. For this legacy DQN workflow, automatic recovery or reconciliation after
+a hard kill is not yet implemented; start a new attempt from a recorded checkpoint to continue work.
 
 Use a database reference anywhere a runner accepts a checkpoint:
 
