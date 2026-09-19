@@ -61,6 +61,33 @@ class PolicyValueNetwork(nn.Module):
             raise ValueError("DQN feature extractor does not match this architecture")
         self.load_state_dict({**self.state_dict(), **features})
 
+    def initialize_from_policy_value(
+        self, weights: dict[str, torch.Tensor], source_blocks: int
+    ) -> None:
+        """Copy a policy/value network, optionally appending trainable identities."""
+        if not 0 <= source_blocks <= len(self.blocks):
+            raise ValueError("transfer cannot shrink depth; use --blocks >= source blocks")
+        current = self.state_dict()
+        expected = {
+            key for key in current
+            if not key.startswith("blocks.") or int(key.split(".")[1]) < source_blocks
+        }
+        if set(weights) != expected or any(
+            weights[key].shape != current[key].shape for key in expected
+        ):
+            raise ValueError(
+                "source policy/value architecture does not match; "
+                "transfer requires the same --channels and compatible source blocks"
+            )
+        # Stem and residual outputs are nonnegative. With a zero second
+        # convolution, ReLU(inputs + 0) is exactly the identity. Keep conv1's
+        # normal initialization so conv2 can learn immediately; conv1 receives
+        # gradients once conv2 has moved away from zero.
+        for block in self.blocks[source_blocks:]:
+            nn.init.zeros_(block.conv2.weight)
+            nn.init.zeros_(block.conv2.bias)
+        self.load_state_dict({**self.state_dict(), **weights})
+
 
 class PolicyValueAgent:
     def __init__(

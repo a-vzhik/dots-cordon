@@ -393,7 +393,8 @@ def test_search_transfer_preserves_weights_and_starts_fresh(
     assert load(resumed)["initialization"] == load(target)["initialization"]
 
 
-def test_transfer_audit_records_source_without_resume_ancestry(tmp_path):
+@pytest.mark.parametrize("blocks", [0, 2])
+def test_transfer_audit_records_source_without_resume_ancestry(tmp_path, blocks):
     url = f"sqlite:///{tmp_path / 'audit.sqlite3'}"
     db = Database(url)
     db.upgrade()
@@ -410,6 +411,7 @@ def test_transfer_audit_records_source_without_resume_ancestry(tmp_path):
         tmp_path / "target", "--database-url", url, "--experiment", "larger",
         "--initialize-from", "champion:search-self-play", "--rows", "3",
         "--columns", "4", "--max-turns", "2", "--episodes", "1",
+        "--blocks", str(blocks),
     )
     target_args.no_audit = False
     search_train.run(target_args)
@@ -419,6 +421,11 @@ def test_transfer_audit_records_source_without_resume_ancestry(tmp_path):
         assert attempt["start_episode"] == 0
         assert attempt["starting_checkpoint_id"] is None
         assert attempt["config"]["initialization"]["source_checkpoint_id"] == source["id"]
+        if blocks:
+            assert attempt["config"]["initialization"]["depth_expansion"] == {
+                "method": "zero_second_convolution_v1",
+                "source_blocks": 0, "destination_blocks": blocks,
+            }
         checkpoints = audit.list_checkpoints(attempt["id"])
         initial = next(c for c in checkpoints if c["episode"] == 0)
         assert initial["parent_checkpoint_id"] is None
@@ -446,3 +453,52 @@ def test_transfer_rejects_source_directory_overwrite(tmp_path):
     with pytest.raises(ValueError, match="separate --checkpoint-dir"):
         search_train.run(arguments(tmp_path, "--initialize-from", str(source)))
     assert source.read_bytes() == original_bytes
+
+
+def test_expanded_transfer_saves_provenance_and_resumes_exactly(tmp_path):
+    source_dir = tmp_path / "source"
+    search_train.run(arguments(source_dir, "--blocks", "1", "--episodes", "1"))
+    source = load(source_dir)
+    common = [
+        "--initialize-from", str(source_dir / "search-latest.pt"),
+        "--blocks", "7", "--rows", "10", "--columns", "15", "--max-turns", "2",
+    ]
+    full, first, resumed = [tmp_path / name for name in ("full", "first", "resumed")]
+    search_train.run(arguments(full, *common))
+    search_train.run(arguments(first, *common, "--episodes", "1"))
+    initial = torch.load(first / "search-0000000.pt", weights_only=True)
+    assert initial["model"] == {"kind": "policy_value", "channels": 4, "blocks": 7}
+    assert not initial["optimizer"]["state"]
+    assert initial["initialization"]["depth_expansion"] == {
+        "method": "zero_second_convolution_v1",
+        "source_blocks": 1, "destination_blocks": 7,
+    }
+    for key, value in source["online"].items():
+        torch.testing.assert_close(initial["online"][key], value, rtol=0, atol=0)
+    resume_args = arguments(
+        resumed, "--resume", str(first / "search-latest.pt"),
+        "--rows", "10", "--columns", "15", "--max-turns", "2",
+    )
+    resume_args.blocks = None  # Architecture comes from the expanded checkpoint.
+    search_train.run(resume_args)
+    expected, actual = load(full), load(resumed)
+    assert actual["initialization"] == initial["initialization"]
+    assert actual["model"] == initial["model"]
+    assert actual["training_state"] == expected["training_state"]
+    for key, value in expected["online"].items():
+        torch.testing.assert_close(actual["online"][key], value, rtol=0, atol=0)
+    for key, value in expected["replay"].items():
+        torch.testing.assert_close(actual["replay"][key], value, rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("overrides,error", [
+    (["--channels", "8", "--blocks", "3"], "same --channels"),
+    (["--blocks", "0"], "cannot shrink"),
+])
+def test_transfer_rejects_incompatible_architecture(tmp_path, overrides, error):
+    search_train.run(arguments(tmp_path / "source", "--blocks", "1", "--episodes", "1"))
+    with pytest.raises(ValueError, match=error):
+        search_train.run(arguments(
+            tmp_path / "target", "--initialize-from",
+            str(tmp_path / "source/search-latest.pt"), *overrides,
+        ))

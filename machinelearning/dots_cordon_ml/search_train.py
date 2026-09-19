@@ -56,7 +56,8 @@ def parse_args(arguments=None):
         "--channels", type=int, help="infer from source checkpoint, otherwise 64"
     )
     parser.add_argument(
-        "--blocks", type=int, help="infer from source checkpoint, otherwise 3"
+        "--blocks", type=int,
+        help="infer from source, otherwise 3; search transfer can increase depth"
     )
     source = parser.add_mutually_exclusive_group()
     source.add_argument(
@@ -248,9 +249,19 @@ def run(args):
             else (metadata.blocks if metadata else 3)
         )
         if metadata and metadata.model != (args.channels, args.blocks):
-            raise ValueError(
-                "source checkpoint architecture does not match channels/blocks"
-            )
+            if args.resume or metadata.kind != "policy_value":
+                raise ValueError(
+                    "source checkpoint architecture does not match channels/blocks; "
+                    "depth expansion requires --initialize-from a policy/value checkpoint"
+                )
+            if metadata.channels != args.channels:
+                raise ValueError(
+                    "transfer requires the same --channels as the source checkpoint"
+                )
+            if args.blocks < metadata.blocks:
+                raise ValueError(
+                    "transfer cannot shrink depth; use --blocks >= source blocks"
+                )
         if args.initialize_from:
             initialization.update(
                 destination_board={"rows": args.rows, "columns": args.columns},
@@ -261,6 +272,12 @@ def run(args):
                 },
                 destination_game_config={"max_turns": args.max_turns},
             )
+            if metadata.kind == "policy_value" and args.blocks > metadata.blocks:
+                initialization["depth_expansion"] = {
+                    "method": "zero_second_convolution_v1",
+                    "source_blocks": metadata.blocks,
+                    "destination_blocks": args.blocks,
+                }
         agent = PolicyValueAgent(device, args.channels, args.blocks, args.learning_rate)
         replay = SearchReplay(args.replay_capacity)
         state = TrainingState()
@@ -282,7 +299,9 @@ def run(args):
             state = TrainingState(**payload["training_state"])
         elif payload:
             if metadata.kind == "policy_value":
-                agent.online.load_state_dict(payload["online"])
+                agent.online.initialize_from_policy_value(
+                    payload["online"], metadata.blocks
+                )
             else:
                 agent.online.initialize_from_dqn(payload["online"])
         if state.episode > args.episodes:

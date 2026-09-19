@@ -70,7 +70,9 @@ uv run dots-cordon-search-train \
 ```
 
 Use a new experiment and checkpoint directory to preserve the original run.
-Architecture is inferred from the source; explicit width/depth must match.
+Architecture is inferred from the source. Width must match; policy/value transfer
+can increase depth with `--blocks` (DQN feature transfer still requires matching
+depth).
 Source bytes are read once, and their exact SHA-256 and transfer provenance are
 saved in checkpoints and audit configuration. No source replay crosses boards.
 The trainer commits `search-0000000.pt` before playing the first training game;
@@ -79,6 +81,24 @@ a new episode-zero lineage, not resume ancestry in the source experiment.
 
 After transfer, resume the destination checkpoint with matching board,
 architecture and `--max-turns`; `--resume` never changes those properties.
+
+### Expand the search network's receptive field
+
+Add `--blocks 7` to the larger-board transfer command to expand a shallower
+search champion to seven residual blocks. The stem, existing blocks and both
+heads are copied. Each extra block keeps its normally initialized first
+convolution and starts with zero weights and bias in its second convolution.
+Because incoming features are nonnegative, these blocks initially pass features
+through unchanged: policy logits and values match the source on identical
+inputs, including larger boards. The second convolution learns immediately;
+the first receives gradients as the second moves away from zero.
+
+This increases the spatial receptive field from 15×15 at three blocks to 31×31
+at seven blocks. It preserves initial predictions, not a guarantee of playing
+strength or training speed. Expansion uses a fresh optimizer and records the
+`zero_second_convolution_v1` method and old/new block counts in transfer
+provenance. Shrinking depth and changing width are rejected. Subsequent resume
+must use the expanded architecture, inferred when `--blocks` is omitted.
 
 ## Train from scratch
 

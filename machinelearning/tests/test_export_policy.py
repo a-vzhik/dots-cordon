@@ -7,6 +7,7 @@ from onnx.reference import ReferenceEvaluator
 
 from dots_cordon_ml import export_policy
 from dots_cordon_ml.audit import AuditService, Database
+from dots_cordon_ml.search import PolicyValueNetwork
 from test_promote_run import checkpoint
 
 
@@ -58,3 +59,28 @@ def test_export_rejects_turn_limit(tmp_path):
     torch.save(payload, path)
     with pytest.raises(ValueError, match="turn limit"):
         export_policy.export_policy(str(path), tmp_path / "model.onnx")
+
+
+def test_expanded_policy_exports_with_prediction_parity(tmp_path):
+    torch.manual_seed(12)
+    original = PolicyValueNetwork(4, 3).eval()
+    expanded = PolicyValueNetwork(4, 7).eval()
+    expanded.initialize_from_policy_value(original.state_dict(), 3)
+    source = checkpoint(tmp_path / "expanded.pt", 0)
+    payload = torch.load(source, weights_only=True)
+    payload["online"] = expanded.state_dict()
+    payload["model"]["blocks"] = 7
+    payload["board"] = {"rows": 15, "columns": 15}
+    torch.save(payload, source)
+    target = tmp_path / "expanded.onnx"
+    export_policy.export_policy(str(source), target)
+    restored, metadata = export_policy.load_policy(str(source))
+    assert metadata.blocks == 7
+    evaluator = ReferenceEvaluator(onnx.load(target))
+    for rows, columns in [(7, 7), (10, 15), (15, 15)]:
+        state = np.random.default_rng(7).normal(size=(1, 5, rows, columns)).astype(np.float32)
+        with torch.inference_mode():
+            expected, _ = original(torch.from_numpy(state))
+            torch.testing.assert_close(restored(torch.from_numpy(state)), expected)
+        actual = evaluator.run(None, {"state": state})[0]
+        np.testing.assert_allclose(actual, expected.numpy(), rtol=1e-5, atol=1e-6)

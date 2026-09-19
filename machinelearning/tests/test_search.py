@@ -103,6 +103,58 @@ def test_warm_start_copies_features_only():
         PolicyValueNetwork(8, 0).initialize_from_dqn(dqn.state_dict())
 
 
+@pytest.mark.parametrize("shape", [(7, 7), (10, 15), (15, 15)])
+def test_depth_expansion_preserves_policy_and_value(shape):
+    torch.manual_seed(12)
+    source = PolicyValueNetwork(8, 3)
+    expanded = PolicyValueNetwork(8, 7)
+    expanded.initialize_from_policy_value(source.state_dict(), 3)
+    inputs = torch.randn(2, 5, *shape)
+    with torch.inference_mode():
+        for expected, actual in zip(source(inputs), expanded(inputs)):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+    for key, value in source.state_dict().items():
+        torch.testing.assert_close(expanded.state_dict()[key], value, rtol=0, atol=0)
+
+
+def test_added_blocks_learn_through_both_convolutions():
+    torch.manual_seed(12)
+    source = PolicyValueNetwork(8, 1)
+    expanded = PolicyValueNetwork(8, 3)
+    expanded.initialize_from_policy_value(source.state_dict(), 1)
+    # No weight decay: updates here must come from the learning signal.
+    optimizer = torch.optim.SGD(expanded.parameters(), lr=0.1)
+    inputs = torch.randn(2, 5, 7, 7)
+    for step in range(2):
+        before = deepcopy(expanded.state_dict())
+        optimizer.zero_grad()
+        policy, value = expanded(inputs)
+        loss = torch.nn.functional.cross_entropy(policy, torch.tensor([3, 16]))
+        loss = loss + torch.nn.functional.mse_loss(value, torch.tensor([1., -1.]))
+        loss.backward()
+        for block in expanded.blocks[1:]:
+            assert block.conv2.weight.grad.abs().sum() > 0
+            if step == 0:
+                assert block.conv1.weight.grad.abs().sum() == 0
+            else:
+                assert block.conv1.weight.grad.abs().sum() > 0
+        optimizer.step()
+        for index in [1, 2]:
+            key = f"blocks.{index}.conv{2 if step == 0 else 1}.weight"
+            assert not torch.equal(before[key], expanded.state_dict()[key])
+
+
+def test_depth_transfer_rejects_width_change_shrinking_and_missing_weights():
+    source = PolicyValueNetwork(8, 3).state_dict()
+    with pytest.raises(ValueError, match="cannot shrink"):
+        PolicyValueNetwork(8, 2).initialize_from_policy_value(source, 3)
+    with pytest.raises(ValueError, match="same --channels"):
+        PolicyValueNetwork(16, 7).initialize_from_policy_value(source, 3)
+    del source["policy_head.bias"]
+    with pytest.raises(ValueError, match="architecture"):
+        PolicyValueNetwork(8, 7).initialize_from_policy_value(source, 3)
+
+
 @pytest.mark.parametrize("shape", [(3, 3), (3, 5)])
 def test_augmentation_keeps_policy_mask_and_board_aligned(shape):
     rows, cols = shape
