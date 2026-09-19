@@ -440,3 +440,72 @@ An interrupted or failed partial job retains its batches and retries the whole j
 with fresh reserved suites, recording replacement batch IDs. Local locks prevent
 simultaneous delivery of one operation or concurrent stages within one contest.
 SIGINT/SIGTERM mark interrupted evidence; retry the same request after recovery.
+
+### Bounded promotion jobs
+
+`dots-cordon-promotion --request promotion.json --result promotion-result.json
+--database-url sqlite:////absolute/path/audit.sqlite3` validates completed evaluation
+evidence and applies the shared saved-run gates. It plays no games and never trains.
+Use the contest-owned candidate and attempt returned by the evaluation unit:
+
+```json
+{
+  "version": 1,
+  "operation_id": "round-100-promotion",
+  "experiment": "larger-board",
+  "attempt_id": "EVALUATION_CONTEST_ATTEMPT_ID",
+  "candidate_checkpoint_id": "EVALUATION_CONTEST_CANDIDATE_ID",
+  "expected_assignment_id": "CAPTURED_CHAMPION_ASSIGNMENT_ID",
+  "evidence": {
+    "champion_screening": "CHAMPION_RANDOM_EVALUATION_ID",
+    "candidate_screening": "CANDIDATE_RANDOM_EVALUATION_ID",
+    "initial_head_to_head": "INITIAL_CHALLENGE_EVALUATION_ID",
+    "extended_head_to_head": null
+  },
+  "config": {
+    "rows": 15, "columns": 15, "max_turns": 0, "mode": "policy",
+    "screen_max_regression": 0.003,
+    "promotion_min_match_score": 0.52, "promotion_min_suite_wins": 2,
+    "opening_random_moves": 4,
+    "screen_games": 1000, "screen_suites": 3,
+    "screen_seeds": [30000001, 30000002, 30000003],
+    "head_to_head_games": 1000, "head_to_head_suites": 3,
+    "head_to_head_seeds": [40000001, 40000002, 40000003],
+    "extended_head_to_head_games": 1000, "extended_head_to_head_suites": 10,
+    "extended_head_to_head_seeds": []
+  }
+}
+```
+
+All fields are required. Seed lists are the **actual reserved** `suite_seeds` from
+evaluation results, not the requested base seeds. For extended validation supply
+its evaluation ID and actual seeds; otherwise use `null` and an empty list.
+Evidence must match the requested participants, contest, policy mode, board,
+turn limit, game counts, paired seats, openings, full game-seed definitions and
+completed evaluation generation. Challenge stages must have independent seeds.
+The command also validates immutable checkpoint contents and screening provenance.
+
+The result has `status: "completed"` and `decision: "promoted"`, `"rejected"` or
+`"extended_required"`; promoted results include the committed `assignment`.
+Normal promotion requires the configured match score and suite wins (defaults
+0.52 and two of three suites). Only a qualified initial score strictly above 0.5
+and below the normal threshold can use extended evidence. Extended suites must
+score strictly above 0.5, however small the advantage. Their combined result is
+assessed separately from the initial suites. An `extended_required` result leaves
+the contest open: run extended evaluation and submit a **new operation ID** with
+that additional evidence. A failed screen or challenge is a completed rejection;
+invalid evidence or a changed incumbent is an error, not a rejection.
+
+Exit 0 means a completed decision; exit 1 indicates failure, and 130 interruption.
+The database result is authoritative. Retrying an unchanged successful operation
+returns the existing decision without creating another champion generation, even
+if the process died after promotion but before recording its result. Reusing an
+operation ID with changed evidence or settings is rejected. Champion writes use
+an atomic captured-incumbent check; a changed champion requires a fresh contest.
+
+Optional `--output promoted.pt` atomically exports the promoted checkpoint after
+the database decision is committed. Export failure makes the command fail but
+leaves promotion committed and recoverable; retry the identical request with the
+same or a corrected output path. The export path is outside the immutable request.
+A completed rejected operation does not export a model. Export and result files
+can always be repaired without replaying evaluation or creating another promotion.

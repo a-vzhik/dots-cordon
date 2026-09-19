@@ -387,6 +387,22 @@ def _extended_minimum_match_score(games: int) -> float:
     return 0.5 + 0.5 / games
 
 
+def challenge_decision(results, *, minimum_match_score, minimum_suite_wins, extended=False):
+    """One gate implementation for saved-run and bounded promotion workflows."""
+    policy = {
+        "promotion_min_match_score": _extended_minimum_match_score(
+            sum(item.overall.games for item in results)
+        ) if extended else minimum_match_score,
+        "promotion_min_suite_wins": 1 if extended else minimum_suite_wins,
+        **({"extended_validation": True} if extended else {}),
+    }
+    passed = _passes_promotion(results, policy["promotion_min_match_score"],
+                               policy["promotion_min_suite_wins"])
+    extend = (not extended and not passed
+              and _requires_extended_validation(results, minimum_match_score))
+    return ("passed" if passed else "extended" if extend else "rejected"), policy
+
+
 def _format_stats(stats: MatchStats) -> str:
     return (
         f"games={stats.games} W/D/L={stats.wins}/{stats.draws}/{stats.losses} "

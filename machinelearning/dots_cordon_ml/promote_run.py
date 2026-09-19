@@ -181,18 +181,11 @@ def _run_candidate(args, service, experiment, attempt, candidate, assignment, de
             audit_service=service,
             evaluation_id=batch["id"],
         )
-        passed = evaluation._passes_promotion(
-            suites,
-            policy["promotion_min_match_score"],
-            policy["promotion_min_suite_wins"],
+        decision, policy = evaluation.challenge_decision(
+            suites, minimum_match_score=args.promotion_min_match_score,
+            minimum_suite_wins=args.promotion_min_suite_wins, extended=extended,
         )
-        extend = (
-            not extended
-            and not passed
-            and evaluation._requires_extended_validation(
-                suites, args.promotion_min_match_score
-            )
-        )
+        passed, extend = decision == "passed", decision == "extended"
         service.record_decision(
             attempt["id"],
             candidate["id"],
