@@ -10,6 +10,9 @@ from .database import AuditError
 
 
 JSON_FIELDS = {
+    "operation_request",
+    "operation_result",
+    "progress",
     "game_config",
     "seed_offsets",
     "config",
@@ -48,6 +51,16 @@ def _row(row):
 class AuditRepository:
     def __init__(self, connection):
         self.connection = connection
+
+    def find_operation(self, identifier):
+        rows = self._list(s.operations, s.operations.c.id == identifier)
+        return rows[0] if rows else None
+
+    def add_operation(self, values):
+        return self._insert(s.operations, values)
+
+    def update_operation(self, identifier, values):
+        return self._update(s.operations, identifier, values)
 
     def _get(self, table, identifier):
         result = (

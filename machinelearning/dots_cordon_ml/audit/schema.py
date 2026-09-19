@@ -230,3 +230,19 @@ champion_history = sa.Table(
     sa.UniqueConstraint("experiment_id", "generation"),
     sa.UniqueConstraint("decision_id"),
 )
+
+operations = sa.Table(
+    "operations", metadata,
+    sa.Column("id", sa.String(255), primary_key=True),
+    reference("experiment_id", "experiments.id", False),
+    sa.Column("kind", sa.String(32), nullable=False),
+    sa.Column("operation_request", sa.Text, nullable=False),
+    sa.Column("status", sa.String(32), nullable=False),
+    sa.Column("progress", sa.Text, nullable=False),
+    sa.Column("operation_result", sa.Text),
+    timestamp("created_at"),
+    timestamp("updated_at"),
+    sa.CheckConstraint(
+        "status IN ('running', 'completed', 'interrupted', 'failed')", name="status"
+    ),
+)

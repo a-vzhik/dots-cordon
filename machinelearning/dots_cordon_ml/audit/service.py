@@ -145,6 +145,48 @@ class AuditService:
         with self._repositories() as (repository, _):
             return repository.list_experiments()
 
+    def ensure_operation(self, operation_id, experiment_id, kind, request) -> dict:
+        """Bind a delivery identity to one immutable request; callers own execution locks."""
+        if not isinstance(operation_id, str) or not 1 <= len(operation_id) <= 255:
+            raise AuditError("Operation ID must contain 1–255 characters")
+        with self._repositories() as (repository, _):
+            repository.lock_experiment(experiment_id)
+            existing = repository.find_operation(operation_id)
+            if existing:
+                if (existing["experiment_id"] != experiment_id or existing["kind"] != kind
+                        or existing["operation_request"] != request):
+                    raise AuditError("Operation ID reused with different request")
+                return existing
+            return repository.add_operation(dict(
+                id=operation_id, experiment_id=experiment_id, kind=kind,
+                operation_request=request, status="running", progress={},
+                operation_result=None, created_at=now(), updated_at=now(),
+            ))
+
+    def get_operation(self, operation_id) -> dict | None:
+        with self._repositories() as (repository, _):
+            return repository.find_operation(operation_id)
+
+    def update_operation(self, operation_id, *, status, progress=None, result=None) -> dict:
+        if status not in {"running", "completed", "interrupted", "failed"}:
+            raise AuditError("Unknown operation status")
+        if status == "completed" and result is None:
+            raise AuditError("Completed operation requires a result")
+        with self._repositories() as (repository, _):
+            existing = repository.find_operation(operation_id)
+            if existing is None:
+                raise AuditError("Unknown operation ID")
+            repository.lock_experiment(existing["experiment_id"])
+            existing = repository.find_operation(operation_id)
+            if existing["status"] == "completed":
+                if status != "completed" or result != existing["operation_result"]:
+                    raise AuditError("Completed operation cannot be changed")
+                return existing
+            values = dict(status=status, operation_result=result, updated_at=now())
+            if progress is not None:
+                values["progress"] = progress
+            return repository.update_operation(operation_id, values)
+
     def get_checkpoint(self, checkpoint_id: str) -> dict:
         with self._repositories() as (repository, _):
             return repository.get_checkpoint(checkpoint_id)

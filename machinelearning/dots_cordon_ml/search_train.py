@@ -306,7 +306,7 @@ def run(args):
             # Audited diagnostics retain their immutable initial opponent across
             # process boundaries, even when the supplied champion alias changes.
             frozen_opponent = payload.get("config", {}).get("frozen_eval_opponent")
-            if frozen_opponent and audit:
+            if frozen_opponent and audit and not getattr(args, "_bounded_training", False):
                 args.eval_opponent = Path(frozen_opponent)
         elif payload:
             if metadata.kind == "policy_value":
@@ -367,7 +367,10 @@ def run(args):
             stop_requested = True
             print("stopping after the current episode/evaluation", flush=True)
 
-        previous = signal.signal(signal.SIGINT, request_stop)
+        previous = {
+            name: signal.signal(name, request_stop)
+            for name in (signal.SIGINT, signal.SIGTERM)
+        }
         try:
             return _train(
                 args,
@@ -385,7 +388,8 @@ def run(args):
                 lambda: stop_requested,
             )
         finally:
-            signal.signal(signal.SIGINT, previous)
+            for name, handler in previous.items():
+                signal.signal(name, handler)
     except BaseException as exc:
         if audit and attempt:
             audit.update_attempt(

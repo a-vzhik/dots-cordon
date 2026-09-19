@@ -263,6 +263,67 @@ evidence. A changed incumbent during an incomplete attempt stops the command
 instead of promoting against stale evidence. A completed promotion is retained
 even if the compatibility file export subsequently fails.
 
+## Bounded training process
+
+`dots-cordon-training` runs one search-training round without inline evaluation.
+It requires an audited immutable source checkpoint and a JSON request with every
+effective training setting. Apply the latest schema with `dots-cordon-audit db
+upgrade` before using it. Database credentials belong in `--database-url` or
+`DOTS_CORDON_DATABASE_URL`, never in the request.
+
+Example `training-request.json` (replace the checkpoint ID and absolute output
+path; these settings illustrate the contract, not a measured training budget):
+
+```json
+{
+  "version": 1,
+  "operation_id": "larger-board-round-001",
+  "experiment": "larger-board",
+  "source": {"mode": "initialize", "checkpoint_id": "SOURCE_CHECKPOINT_UUID"},
+  "target_episode": 100,
+  "config": {
+    "server": "127.0.0.1:50051",
+    "rows": 10, "columns": 15, "max_turns": 0,
+    "seed": 7, "device": "cpu", "channels": 64, "blocks": 7,
+    "learning_rate": 0.0003, "batch_size": 128,
+    "replay_capacity": 20000, "learning_starts": 512,
+    "updates_per_episode": 8, "simulations": 64,
+    "c_puct": 1.5, "dirichlet_alpha": 0.3, "noise_fraction": 0.25,
+    "temperature_moves": 12, "log_every": 10, "checkpoint_every": 100,
+    "checkpoint_dir": "/absolute/path/checkpoints/larger-board",
+    "rpc_timeout": 10, "bootstrap_champion": true
+  }
+}
+```
+
+```sh
+uv run dots-cordon-training --request training-request.json --result training-result.json
+```
+
+The result includes `operation_id`, `status`, `attempt_id`, `checkpoint_id`,
+`checkpoint_sha256`, reached `episode`, absolute `target_episode` and `config`.
+Exit code 0 means completed, 130 means gracefully interrupted with a committed
+partial checkpoint, and 1 means a command failure. The audit operation record
+is authoritative; the result file is an atomic acknowledgement that can be
+recreated by retrying the same request.
+
+For the next round, give the request a new operation ID, change source to
+`{"mode":"resume","checkpoint_id":"PREVIOUS_RESULT_CHECKPOINT_UUID"}`, set
+`target_episode` to 200, and set `bootstrap_champion` to false. Carry forward the
+complete configuration. A rejected candidate still supplies the next learner
+checkpoint. Resume restores optimizer, replay, RNG and counters.
+
+SIGINT and SIGTERM finish the current episode, commit its complete state, and
+return an interrupted result unless the target was already reached. Retry the
+**unchanged request and operation ID** to finish its original target. A completed
+operation returns its stored result without retraining. Recovery also recognizes
+a checkpoint committed before the child saved its final result. Failed and
+interrupted attempts remain in the audit history; retries create new attempts
+with explicit checkpoint ancestry. An operation ID cannot be reused with changed
+settings. A local OS lock prevents two same-user processes from executing the
+same operation against the same database URL concurrently; distributed worker
+ownership is outside this command's scope.
+
 ## Defaults and initial limits
 
 | Setting | Default |
