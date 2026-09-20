@@ -48,7 +48,7 @@ export function useDashboard(experiment: string, paused: boolean, page: Dashboar
         busy = false
         if (!disposed) {
           setRefreshing(false)
-          if (!paused && !document.hidden) timer = setTimeout(refresh, 3_000)
+          if (!paused && !document.hidden) timer = setTimeout(refresh, 15_000)
         }
       }
     }

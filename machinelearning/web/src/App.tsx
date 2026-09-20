@@ -214,7 +214,7 @@ export default function App() {
               ? 'Connection needs attention'
               : paused
                 ? 'Updates paused'
-                : 'Auto-refresh every 3 seconds'}
+                : 'Auto-refresh every 15 seconds'}
           </span>
           <span>
             {updatedAt

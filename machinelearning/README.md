@@ -234,7 +234,7 @@ when every candidate fails qualification or loses to the champion. Champion
 status is separate. Standalone training selects its best checkpoint using its
 periodic training evaluations.
 
-The page refreshes after each completed read with a three-second interval,
+The page refreshes after each completed read with a fifteen-second interval,
 pauses when hidden, and keeps the last successful data on a connection error.
 You can pause updates or refresh manually. Experiment/checkpoint selection is
 stored in the URL. Full configuration, provenance, policies, and exact suite
