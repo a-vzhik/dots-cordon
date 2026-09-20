@@ -14,6 +14,7 @@ from .audit import AuditService
 from .audit.database import PromotionConflict
 from .audit.integration import close_audit, resolve_checkpoint_reference
 from .checkpoint import read_checkpoint
+from .cached_screening import validate_cached_pair
 from .evaluation import batch_results, contest_attempt_id, request_arguments as evaluation_arguments
 from .operations import operation_lock, write_result
 from . import promotion_evaluation as shared
@@ -50,8 +51,10 @@ def validate_request(request):
     for key, value in evidence.items():
         if not _identifier(value) and not (key == "extended_head_to_head" and value is None):
             raise ValueError("Invalid evidence ID")
-    if not isinstance(config, dict) or set(config) != CONFIG_FIELDS:
+    if not isinstance(config, dict) or set(config) not in (CONFIG_FIELDS, CONFIG_FIELDS | {"reuse_champion_screening"}):
         raise ValueError("Complete explicit promotion config required")
+    if "reuse_champion_screening" in config and type(config["reuse_champion_screening"]) is not bool:
+        raise ValueError("reuse_champion_screening must be a boolean")
     for key in CONFIG_FIELDS - {"mode", "screen_max_regression", "promotion_min_match_score"}:
         value = config[key]
         if key.endswith("_seeds"):
@@ -164,9 +167,13 @@ def _decide(audit, experiment, request):
                 or metadata.kind not in {"dqn", "policy_value"}):
             raise ValueError("Participant model board/rules differ from promotion requirements")
     screens = [audit.get_evaluation(evidence[key]) for key in ("champion_screening", "candidate_screening")]
-    if screens[0]["config"].get("operation_id") != screens[1]["config"].get("operation_id"):
+    reuse = config.get("reuse_champion_screening", False)
+    if reuse:
+        validate_cached_pair(audit, screens[1], screens[0], experiment["id"], champion_id, config)
+    elif screens[0]["config"].get("operation_id") != screens[1]["config"].get("operation_id"):
         raise ValueError("Screening evidence must come from one matched evaluation operation")
-    champion = _batch(audit, experiment, request, "champion_screening", champion_id, None)
+    champion = (batch_results(screens[0]) if reuse else
+                _batch(audit, experiment, request, "champion_screening", champion_id, None))
     candidate_screen = _batch(audit, experiment, request, "candidate_screening", candidate["id"], None)
     initial = _batch(audit, experiment, request, "initial_head_to_head", candidate["id"], champion_id)
     extended = (_batch(audit, experiment, request, "extended_head_to_head", candidate["id"], champion_id)
@@ -191,7 +198,8 @@ def _decide(audit, experiment, request):
                           result="qualified" if qualified else "rejected",
                           candidate_evaluation_id=evidence["candidate_screening"],
                           champion_evaluation_id=evidence["champion_screening"],
-                          policy={"screen_max_regression": config["screen_max_regression"]},
+                          policy={"screen_max_regression": config["screen_max_regression"],
+                                  **({"reuse_champion_screening": True} if reuse else {})},
                           operation_key=request["operation_id"] + ":screening")
     promoted = None
     if qualified:

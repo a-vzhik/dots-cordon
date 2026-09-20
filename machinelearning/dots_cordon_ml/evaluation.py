@@ -15,6 +15,7 @@ import torch
 from .audit import AuditService
 from .audit.integration import close_audit, resolve_checkpoint_reference
 from .checkpoint import read_checkpoint
+from .cached_screening import select_champion_baseline, validate_random_batch
 from .operations import operation_lock, write_result
 from . import promotion_evaluation as shared
 from .self_play import EvaluationResult, MatchStats, combine_evaluation_results
@@ -48,8 +49,11 @@ def request_arguments(request):
     } or not all(_identifier(value) for value in contest.values()):
         raise ValueError("contest requires id and immutable candidate, champion and assignment IDs")
     config = request["config"]
-    if not isinstance(config, dict) or set(config) != CONFIG_FIELDS:
+    if not isinstance(config, dict) or set(config) not in (CONFIG_FIELDS, CONFIG_FIELDS | {"reuse_champion_screening"}):
         raise ValueError("Complete explicit evaluation config required")
+    if "reuse_champion_screening" in config and (request["stage"] != "screening"
+            or type(config["reuse_champion_screening"]) is not bool):
+        raise ValueError("reuse_champion_screening must be a boolean on screening jobs only")
     for key in CONFIG_FIELDS - {"server", "device", "mode", "paired_seats", "rpc_timeout"}:
         if type(config[key]) is not int:
             raise ValueError(f"{key} must be an integer")
@@ -158,6 +162,8 @@ def _result(audit, request, attempt, candidate, progress, status, error=None):
             item["aggregate"] = shared._result_dict(combine_evaluation_results(suites))
             for suite, stats in zip(item["suites"], suites, strict=True):
                 suite["result"] = shared._result_dict(stats)
+        if request["config"].get("reuse_champion_screening"):
+            item["reused"] = batch["id"] == progress.get("champion_screening_id")
         evaluations.append(item)
     result = {
         "version": 1, "operation_id": request["operation_id"], "kind": "evaluation", "status": status,
@@ -170,6 +176,9 @@ def _result(audit, request, attempt, candidate, progress, status, error=None):
         "suite_seeds": progress.get("suite_seeds", []),
         "evaluation_ids": progress.get("evaluation_ids", []), "evaluations": evaluations,
     }
+    if request["config"].get("reuse_champion_screening"):
+        result["reused_evaluation_ids"] = [progress["champion_screening_id"]]
+        result["executed_evaluation_ids"] = [i for i in result["evaluation_ids"] if i != progress["champion_screening_id"]]
     if error:
         result["error"] = error
     return result
@@ -178,11 +187,23 @@ def _result(audit, request, attempt, candidate, progress, status, error=None):
 def _run(audit, experiment, request, args, operation):
     attempt, candidate, participants = _contest(audit, experiment, request)
     progress = operation["progress"]
+    reuse = request["config"].get("reuse_champion_screening", False)
+    if reuse:
+        assignment = next(a for a in audit.champion_history(experiment["id"])
+                          if a["id"] == request["contest"]["expected_assignment_id"])
+        if "champion_screening_id" not in progress:
+            baseline = select_champion_baseline(audit, experiment["id"], assignment, request["config"])
+            progress = {**progress, "champion_screening_id": baseline["id"]}
+            audit.update_operation(request["operation_id"], status="running", progress=progress)
+        else:
+            baseline = validate_random_batch(audit, audit.get_evaluation(progress["champion_screening_id"]),
+                                             experiment["id"], assignment["checkpoint_id"], request["config"])
+        print(f"random-screen reusing champion evaluation={baseline['id']}", flush=True)
     all_batches = audit.list_evaluations(experiment["id"])
     previous = [b for b in all_batches
                 if b["config"].get("operation_id") == request["operation_id"]]
     current = [b for b in previous if b["id"] in progress.get("evaluation_ids", [])]
-    expected_count = 2 if request["stage"] == "screening" else 1
+    expected_count = 2 if request["stage"] == "screening" and not reuse else 1
     if len(current) == expected_count and all(b["status"] == "completed" for b in current):
         result = _result(audit, request, attempt, candidate, progress, "completed")
         audit.update_operation(request["operation_id"], status="completed", result=result)
@@ -202,14 +223,15 @@ def _run(audit, experiment, request, args, operation):
     generation = progress.get("generation", 0) + 1
     identifiers = [str(uuid5(NAMESPACE_URL, f"{request['operation_id']}:{generation}:{index}"))
                    for index in range(expected_count)]
-    progress = {"generation": generation, "suite_seeds": list(seeds), "evaluation_ids": identifiers,
+    progress = {**progress, "generation": generation, "suite_seeds": list(seeds),
+                "evaluation_ids": ([progress["champion_screening_id"]] if reuse else []) + identifiers,
                 "replaced_evaluation_ids": [b["id"] for b in previous]}
     audit.update_operation(request["operation_id"], status="running", progress=progress)
     champion_path, candidate_path = participants[0][1], participants[1][1]
     metadata = participants[1][2]
     screening = request["stage"] == "screening"
     definitions = shared.suite_definitions(args, metadata, seeds, args.games, head_to_head=not screening)
-    subject_ids = (request["contest"]["champion_checkpoint_id"], candidate["id"]) if screening else (candidate["id"],)
+    subject_ids = (request["contest"]["champion_checkpoint_id"], candidate["id"]) if screening and not reuse else (candidate["id"],)
     # Persist all participant batches before execution. Retry preserves completed
     # siblings but replaces the entire partial screening pair with fresh suites.
     for identifier, subject in zip(identifiers, subject_ids, strict=True):
@@ -224,7 +246,7 @@ def _run(audit, experiment, request, args, operation):
         torch.set_num_threads(1)
         device = shared._device(args.device)
         if screening:
-            shared._evaluate_random_screen(args, (champion_path, candidate_path), device, seeds, args.games,
+            shared._evaluate_random_screen(args, (candidate_path,) if reuse else (champion_path, candidate_path), device, seeds, args.games,
                                           audit_service=audit, evaluation_ids=tuple(identifiers))
         else:
             contender = shared.EvaluatedCheckpoint(candidate_path, metadata, (), None)

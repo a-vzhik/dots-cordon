@@ -107,7 +107,11 @@ uv run dots-cordon-search-loop \
 ```
 
 These are example budgets, not throughput recommendations. `games` is per suite,
-so screening plays twice the configured games/suites (champion and candidate).
+so the default screening plays twice the configured games/suites (champion and candidate).
+For an existing champion with durable screening evidence, set
+`evaluation_config.screening.reuse_champion_screening: true`, `games: 150`,
+`suites: 4`, and `evaluation_workers: 4` to play only 600 candidate games in
+four parallel suites. The champion’s previous result supplies the baseline.
 The complete generated request is reviewable before starting. The generator
 captures current defaults once; later rounds use the saved settings, not changing
 CLI defaults. Gates do not inherit overrides from older experiments. Set the
@@ -551,10 +555,11 @@ and a distinct stable `operation_id` for each stage:
 }
 ```
 
-All configuration fields are required. `games` is the even number of games per
+All shown configuration fields are required. `reuse_champion_screening` is an
+optional boolean supported only on screening jobs. `games` is the even number of games per
 suite, split evenly between seats. `seed` is the explicit base for durable seed
 reservation; the result records the actual reserved suite seeds, exact game seeds,
-seat schedules and openings. Screening compares both captured participants against
+seat schedules and openings. By default, screening compares both captured participants against
 random on identical suites and requires zero random opening moves. For an initial
 challenge, use `stage: "head_to_head"`, a new operation ID, seed `40000001` and
 `opening_random_moves: 4`. For extended validation, use
@@ -562,6 +567,22 @@ challenge, use `stage: "head_to_head"`, a new operation ID, seed `40000001` and
 chosen larger suite count. The unit does not decide whether extended validation is
 warranted. Custom overlapping seed bases still receive fresh, disjoint suites.
 MCTS evidence is rejected here; use `dots-cordon-search-evaluate` for diagnostics.
+
+With `reuse_champion_screening: true`, the unit executes only the candidate batch.
+It prefers the champion's own qualifying screening from its promotion attempt;
+for bootstrap/manual champions it selects the earliest compatible completed batch.
+If no valid durable baseline exists, the job fails before playing games. It never
+silently launches a champion evaluation. The selected baseline ID is saved before
+execution and remains pinned across retries.
+
+The historical baseline must describe the exact champion, board, rules, greedy
+policy and paired-seat random opponent. Its completed operation, suite definitions
+and actual counts are validated against its original budget. It may contain
+3 × 1,000 games while a new candidate plays 4 × 150. Their aggregate match scores
+are compared with the **unchanged** `screen_max_regression` tolerance; this mode
+compares independent samples rather than matched seeds. Head-to-head budgets,
+thresholds and borderline extension rules are unchanged. Promotion naturally makes
+the successful candidate's existing screening the next champion's baseline.
 
 The contest creates one audit attempt and one candidate record pointing to the same
 immutable model bytes as the original learner checkpoint. Every stage shares that
@@ -571,7 +592,10 @@ candidate and its captured incumbent assignment. The result distinguishes
 `evaluation_ids` are ordered champion then candidate for screening and contain one
 candidate-versus-champion batch for either challenge stage. Results include model
 kinds, full definitions, W/D/L, match score (draws count half), and per-seat/per-suite
-statistics. `evaluation.batch_results` reconstructs complete audit results for the
+statistics. In cached mode the champion entry has `reused: true`;
+`reused_evaluation_ids` and `executed_evaluation_ids` distinguish historical evidence
+from newly played batches. No historical batch is copied or reassigned to the new
+contest. `evaluation.batch_results` reconstructs complete audit results for the
 existing shared gate functions.
 
 The audit database owns operation results; the JSON file is an atomic acknowledgement.
@@ -625,6 +649,12 @@ Evidence must match the requested participants, contest, policy mode, board,
 turn limit, game counts, paired seats, openings, full game-seed definitions and
 completed evaluation generation. Challenge stages must have independent seeds.
 The command also validates immutable checkpoint contents and screening provenance.
+For cached screening, add `reuse_champion_screening: true` to promotion `config`.
+The supervisor forwards this automatically. `screen_games`, `screen_suites` and
+`screen_seeds` then describe the candidate batch; `champion_screening` must be the
+exact historical baseline pinned by that candidate's completed screening operation.
+Without the flag, the original requirement for one matched screening operation and
+identical suite definitions remains in force.
 
 The result has `status: "completed"` and `decision: "promoted"`, `"rejected"` or
 `"extended_required"`; promoted results include the committed `assignment`.

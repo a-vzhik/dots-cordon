@@ -71,6 +71,8 @@ def validate_request(request):
 def promotion_config(request, results):
     configs = request["evaluation_config"]
     config = {key: request["training_config"][key] for key in ("rows", "columns", "max_turns")}
+    if "reuse_champion_screening" in configs["screening"]:
+        config["reuse_champion_screening"] = configs["screening"]["reuse_champion_screening"]
     config.update(request["gates"], mode="policy", opening_random_moves=configs["head_to_head"]["opening_random_moves"])
     for stage, prefix in zip(STAGES, ("screen", "head_to_head", "extended_head_to_head"), strict=True):
         for key in ("games", "suites"):
@@ -284,7 +286,9 @@ class Supervisor:
                     self.audit.record_decision(screen["attempt_id"], screen["candidate_checkpoint_id"],
                         stage="screening" if screening else "challenge", result="rejected",
                         candidate_evaluation_id=screen["evaluation_ids"][1] if screening else state["results"][state["reason"]]["evaluation_ids"][0],
-                        champion_evaluation_id=screen["evaluation_ids"][0], policy=request["gates"],
+                        champion_evaluation_id=screen["evaluation_ids"][0],
+                        policy={**request["gates"], **({"reuse_champion_screening": True}
+                                if request["evaluation_config"]["screening"].get("reuse_champion_screening") else {})},
                         operation_key=identifier(request["run_id"], state["contest"]["id"] + ":rejection"))
                     self.audit.update_attempt(screen["attempt_id"], status="completed", phase="finished",
                                               outcome="no_qualified_candidate" if screening else "no_challenger_passed")

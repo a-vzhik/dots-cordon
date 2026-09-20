@@ -235,3 +235,30 @@ def test_interrupted_evaluation_pauses_and_retries_fresh_suites(setup, monkeypat
     assert sum(e["kind"] == "training" for e in entries(trace)) == 1
     with AuditService(url) as audit:
         assert all(audit.get_evaluation(i)["status"] == "interrupted" for i in previous_ids)
+
+
+def test_cached_screening_supervisor_reuses_promoted_evidence_across_rounds(setup):
+    url, request, trace = setup
+    request["total_episode"] = 1
+    first = search_loop.run_request(request, url, children=FixtureChildren())
+    assert first["status"] == "completed"
+    original = first["rounds"][0]
+    request.update(run_id="cached-loop", total_episode=3,
+                   source=dict(mode="resume", checkpoint_id=original["learner_checkpoint_id"]))
+    request["training_config"]["bootstrap_champion"] = False
+    request["evaluation_config"]["screening"].update(reuse_champion_screening=True, suites=4, evaluation_workers=4)
+    response = search_loop.run_request(request, url, children=FixtureChildren())
+    assert response["status"] == "completed", response
+    assert [r["decision"] for r in response["rounds"]] == ["promoted", "promoted"]
+    baseline = original["results"]["screening"]["evaluation_ids"][1]
+    with AuditService(url) as audit:
+        for round_ in response["rounds"]:
+            screen = round_["results"]["screening"]
+            assert screen["evaluation_ids"][0] == baseline
+            assert screen["reused_evaluation_ids"] == [baseline]
+            assert len(screen["executed_evaluation_ids"]) == 1
+            assert round_["results"]["promotion"]["config"]["reuse_champion_screening"] is True
+            baseline = screen["evaluation_ids"][1]
+            batches = [b for b in audit.list_evaluations(audit.get_experiment("rounds")["id"])
+                       if b["config"].get("operation_id") == screen["operation_id"]]
+            assert len(batches) == 1

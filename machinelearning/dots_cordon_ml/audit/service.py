@@ -1028,7 +1028,15 @@ class AuditService:
                         "Decision baseline differs from the attempt's champion"
                     )
         if stage == "screening" and candidate and champion:
-            _matched_definitions(candidate, champion)
+            if policy.get("reuse_champion_screening") is True:
+                from ..cached_screening import validate_cached_pair
+                if not attempt["champion_at_start_assignment_id"]:
+                    raise AuditError("Cached screening requires a captured champion assignment")
+                experiment = repository.get_experiment(attempt["experiment_id"])
+                validate_cached_pair(repository, candidate, champion, experiment["id"],
+                                     assignment["checkpoint_id"], experiment["game_config"])
+            else:
+                _matched_definitions(candidate, champion)
             if (
                 candidate["opponent_kind"] != "random"
                 or champion["opponent_kind"] != "random"

@@ -14,6 +14,7 @@ def evidence_request(setup, monkeypatch, *, initial=26, initial_draws=0, extende
     screen = evaluation.run_request(job, url)
     monkeypatch.setattr(shared, "_evaluate_head_to_head_suite", lambda *args: result(initial, initial_draws))
     challenge_job = copy.deepcopy(job)
+    challenge_job["config"].pop("reuse_champion_screening", None)
     challenge_job.update(operation_id="initial", stage="head_to_head")
     challenge_job["config"].update(seed=40000001, opening_random_moves=4)
     challenge = evaluation.run_request(challenge_job, url)
