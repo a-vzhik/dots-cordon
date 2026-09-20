@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { fixture, page as envelope } from './fixtures'
+import { fixture, page as envelope, rejectedChallengeFixture } from './fixtures'
 
 async function mockApi(page: Page, { data, experiment } = fixture()) {
   const paths: string[] = []
@@ -28,6 +28,42 @@ async function mockApi(page: Page, { data, experiment } = fixture()) {
   })
   return paths
 }
+
+test('explains the rejection before the detailed checkpoint results', async ({ page }) => {
+  await mockApi(page, rejectedChallengeFixture())
+  await page.goto('/evaluations?checkpoint=child')
+  const card = page.locator('.evaluation-card')
+  await expect(
+    card.getByRole('heading', { name: '400 rejected against champion 300' }),
+  ).toBeVisible()
+  const criteria = card.locator('.promotion-criterion')
+  await expect(criteria.nth(0)).toContainText('49.7% / >50% required')
+  await expect(criteria.nth(1)).toContainText('1 / 2 for immediate pass')
+  await expect(card).toContainText('An immediate pass requires at least 52%')
+  await expect(card).not.toContainText('All results below are for checkpoint')
+  await expect(criteria.locator('.badge')).toHaveText(['Not met', 'Not met'])
+  await expect(card.locator('.evaluation-summary')).toContainText('400 playing first')
+  await expect(card.locator('.evaluation-summary')).toContainText('49.8%')
+  await expect(card.locator('.evaluation-summary')).toContainText('400 playing second')
+  await expect(card.locator('.evaluation-summary')).toContainText('49.6%')
+  await expect(card.locator('.evaluation-summary')).toContainText('+0.05')
+  await expect(card.locator('.evaluation-summary')).toContainText('Not used for promotion')
+  await expect(card.getByText('Suite won', { exact: true })).toHaveCount(1)
+  await expect(card.getByText('Suite not won', { exact: true })).toHaveCount(2)
+  await card.screenshot({ path: 'test-results/evaluation-decision-desktop.png' })
+  // Filtering by the opponent must not silently reverse the score perspective.
+  await page.getByRole('combobox', { name: 'Checkpoint', exact: true }).selectOption('champion')
+  await expect(card.locator('.evaluation-summary')).toContainText('400 playing first')
+  await expect(card.locator('.evaluation-summary')).toContainText('400 playing second')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(
+    card.getByRole('heading', { name: '400 rejected against champion 300' }),
+  ).toBeVisible()
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
+  ).toBeLessThanOrEqual(1)
+  await card.screenshot({ path: 'test-results/evaluation-decision-mobile.png' })
+})
 
 test('opens independent pages and follows record links while keeping experiment context', async ({
   page,

@@ -27,11 +27,13 @@ import { pageHref } from './navigation'
 import { layoutLineage, nodeHeight, nodeWidth } from './layout'
 import {
   bytes,
+  challengeEvidence,
   date,
   label,
   metricValue,
   number,
   percent,
+  precisePercent,
   record,
   scoreLabel,
   shortId,
@@ -1002,11 +1004,30 @@ function EvaluationCard({
   evaluation: EvaluationDetail
   data: DashboardData
 }) {
+  const checkpointName = (id: string) => {
+    const checkpoint =
+      e.participants.find((c) => c.id === id) ?? data.checkpoints.find((c) => c.id === id)
+    return checkpoint ? number(checkpoint.episode) : shortId(id)
+  }
+  const subject = checkpointName(e.checkpoint_id)
+  const gate = challengeEvidence(e)
+  const decisionTitle =
+    gate?.decision.result === 'rejected'
+      ? `${subject} rejected against champion`
+      : gate?.decision.result === 'passed'
+        ? `${subject} passed the challenge against champion`
+        : gate?.decision.result === 'extended'
+          ? `${subject} needs extended evaluation against champion`
+          : `${subject} challenge: ${label(gate?.decision.result ?? '')} against champion`
   return (
     <article className="panel evaluation-card" id={`evaluation-${e.id}`}>
       <div className="evaluation-top">
         <div className="evaluation-title">
-          <Badge>{label(e.purpose)}</Badge>
+          <Badge>
+            {e.config.stage === 'extended_head_to_head'
+              ? 'extended head to head'
+              : label(e.purpose)}
+          </Badge>
           <h3>
             <CheckpointLink id={e.checkpoint_id} data={data} />
             <span className="muted">vs</span>{' '}
@@ -1020,25 +1041,93 @@ function EvaluationCard({
         </div>
         <span className="muted">{date(e.started_at)}</span>
       </div>
-      <div className="evaluation-summary">
-        <div>
-          <span className="muted">Match score</span>
-          <Score stats={e.aggregate?.overall} partial={e.aggregate_is_partial} />
+      {gate && (
+        <div className={`promotion-summary promotion-${gate.decision.result}`}>
+          <div className="eyebrow">
+            {gate.decision.policy.extended_validation === true
+              ? 'Extended challenge decision'
+              : 'Challenge decision'}
+          </div>
+          <h4>
+            {decisionTitle}{' '}
+            {e.opponent_checkpoint_id
+              ? checkpointName(e.opponent_checkpoint_id)
+              : label(e.opponent_kind)}
+          </h4>
+          <div className="promotion-criteria">
+            <div
+              className={`promotion-criterion ${gate.scoreMet ? 'criterion-met' : 'criterion-unmet'}`}
+            >
+              <span>Match score</span>
+              <div>
+                <strong>{percent(e.aggregate?.overall.match_score)}</strong>
+                <span> / &gt;50% required</span>
+              </div>
+              <Badge tone={gate.scoreMet ? 'green' : 'red'}>
+                {gate.scoreMet ? 'Met' : 'Not met'}
+              </Badge>
+            </div>
+            <div
+              className={`promotion-criterion ${gate.suitesMet ? 'criterion-met' : 'criterion-unmet'}`}
+            >
+              <span>Suites won</span>
+              <div>
+                <strong>{gate.suiteWins}</strong>
+                <span>
+                  {' '}
+                  / {gate.minimumSuiteWins}{' '}
+                  {gate.decision.policy.extended_validation === true
+                    ? 'required'
+                    : 'for immediate pass'}
+                </span>
+              </div>
+              <Badge tone={gate.suitesMet ? 'green' : 'red'}>
+                {gate.suitesMet ? 'Met' : 'Not met'}
+              </Badge>
+            </div>
+          </div>
+          {gate.decision.policy.extended_validation === true ? (
+            <p>Extended evaluation must finish above 50% and meet the suite-win requirement.</p>
+          ) : (
+            <p>
+              An immediate pass requires at least {precisePercent(gate.minimumScore)} and the
+              suite-win requirement. Above 50% but below {precisePercent(gate.minimumScore)} leads
+              to extended evaluation, which must also finish above 50%.
+            </p>
+          )}
+          <p>A suite is won with a match score above 50%.</p>
         </div>
+      )}
+      <div className="evaluation-perspective">
+        <span>
+          Match score = (wins + half the draws) ÷ games. Winning margin does not change it.
+        </span>
+      </div>
+      <div className="evaluation-summary">
+        {!gate && (
+          <div>
+            <span className="muted">Match score</span>
+            <Score stats={e.aggregate?.overall} partial={e.aggregate_is_partial} />
+          </div>
+        )}
         <div>
           <span className="muted">Wins / draws / losses</span>
           <strong className="mono">{record(e.aggregate?.overall)}</strong>
         </div>
         <div>
-          <span className="muted">Mean score difference</span>
-          <strong className="mono">{signed(e.aggregate?.overall.mean_score_difference)}</strong>
+          <span className="muted">{subject} playing first</span>
+          <strong className="mono">{percent(e.aggregate?.as_player_0.match_score)}</strong>
+          <small>Match score · player 0</small>
         </div>
         <div>
-          <span className="muted">As player 0 / player 1</span>
-          <strong className="mono">
-            {percent(e.aggregate?.as_player_0.match_score)} /{' '}
-            {percent(e.aggregate?.as_player_1.match_score)}
-          </strong>
+          <span className="muted">{subject} playing second</span>
+          <strong className="mono">{percent(e.aggregate?.as_player_1.match_score)}</strong>
+          <small>Match score · player 1</small>
+        </div>
+        <div>
+          <span className="muted">Average game-points margin</span>
+          <strong className="mono">{signed(e.aggregate?.overall.mean_score_difference)}</strong>
+          <small>{gate ? 'Not used for promotion' : `${subject}’s points minus opponent’s`}</small>
         </div>
         <div>
           <span className="muted">Completed games</span>
@@ -1072,9 +1161,9 @@ function EvaluationCard({
               <th>Games</th>
               <th>Match score</th>
               <th>W / D / L</th>
-              <th>Player 0</th>
-              <th>Player 1</th>
-              <th>Mean difference</th>
+              <th>{subject} playing first</th>
+              <th>{subject} playing second</th>
+              <th>Avg. points margin</th>
             </tr>
           </thead>
           <tbody>
@@ -1095,6 +1184,13 @@ function EvaluationCard({
                 </td>
                 <td>
                   <Score stats={suite.result?.overall} />
+                  {gate && suite.result && (
+                    <span className="cell-note">
+                      {(suite.result.overall.match_score ?? 0) > 0.5
+                        ? 'Suite won'
+                        : 'Suite not won'}
+                    </span>
+                  )}
                 </td>
                 <td className="mono">{record(suite.result?.overall)}</td>
                 <td>{percent(suite.result?.as_player_0.match_score)}</td>

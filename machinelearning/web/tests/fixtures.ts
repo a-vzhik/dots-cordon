@@ -282,3 +282,84 @@ export function fixture(): { data: DashboardData; experiment: Experiment } {
     },
   }
 }
+
+// The 400 vs 300 example: fewer wins, but a positive average points margin.
+export function rejectedChallengeFixture() {
+  const sample = fixture()
+  const { data } = sample
+  const subject = data.checkpoints.find((c) => c.id === 'child')!
+  const opponent = data.checkpoints.find((c) => c.id === 'champion')!
+  subject.episode = 400
+  opponent.episode = 300
+  const batch = data.evaluations[0]
+  const matchStats = (wins: number, draws: number, losses: number, sum: number): Stats => {
+    const games = wins + draws + losses
+    return {
+      games,
+      wins,
+      draws,
+      losses,
+      score_difference_sum: sum,
+      match_score_numerator: 2 * wins + draws,
+      match_score_denominator: 2 * games,
+      match_score: (wins + draws / 2) / games,
+      mean_score_difference: sum / games,
+    }
+  }
+  batch.opponent_checkpoint_id = opponent.id
+  batch.opponent_kind = 'checkpoint'
+  batch.purpose = 'head_to_head'
+  batch.status = 'completed'
+  batch.is_complete = true
+  batch.aggregate_is_partial = false
+  batch.planned_suite_count = batch.recorded_suite_count = batch.completed_suite_count = 3
+  batch.expected_games = batch.completed_games = 3000
+  batch.aggregate = {
+    overall: matchStats(515, 1953, 532, 158),
+    as_player_0: matchStats(257, 981, 262, 37),
+    as_player_1: matchStats(258, 972, 270, 121),
+  }
+  batch.participants = [subject, opponent]
+  const suiteTemplate = batch.suites.items[0]
+  batch.suites = page(
+    [
+      [96, 309, 95, 36, 88, 319, 93, 36],
+      [88, 345, 67, 55, 64, 335, 101, -14],
+      [73, 327, 100, -54, 106, 318, 76, 99],
+    ].map(([w0, d0, l0, s0, w1, d1, l1, s1], index) => ({
+      ...suiteTemplate,
+      id: `challenge-suite-${index}`,
+      suite_index: index,
+      expected_games: 1000,
+      expected_player_0_games: 500,
+      expected_player_1_games: 500,
+      result: {
+        overall: matchStats(w0 + w1, d0 + d1, l0 + l1, s0 + s1),
+        as_player_0: matchStats(w0, d0, l0, s0),
+        as_player_1: matchStats(w1, d1, l1, s1),
+      },
+    })),
+  )
+  batch.decisions = page([
+    {
+      id: 'challenge-decision',
+      attempt_id: subject.attempt_id!,
+      checkpoint_id: subject.id,
+      stage: 'challenge',
+      result: 'rejected',
+      reason: null,
+      candidate_evaluation_id: batch.id,
+      champion_evaluation_id: null,
+      rank: null,
+      created_at: time,
+      policy: { promotion_min_match_score: 0.52, promotion_min_suite_wins: 2 },
+    },
+  ])
+  // Summary fields only: avoid cycles through participants and checkpoint evidence.
+  batch.participants = [subject, opponent].map((c) => ({
+    ...c,
+    evaluations: undefined,
+    recent_evaluations: [],
+  }))
+  return sample
+}
