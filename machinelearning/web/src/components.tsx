@@ -479,9 +479,9 @@ function CheckpointInspector({
       </div>
       <a
         className="button"
-        href={pageHref('checkpoints', location.search, { kind: 'checkpoint', id: checkpoint.id })}
+        href={pageHref('evaluations', location.search, { kind: 'checkpoint', id: checkpoint.id })}
       >
-        View evidence <ArrowDownToLine size={14} />
+        See evaluations <ArrowUpRight size={14} />
       </a>
     </div>
   )
@@ -749,6 +749,15 @@ export function CheckpointsView({
                       {shortId(checkpoint.id)}
                     </span>
                     <span className="cell-note">{date(checkpoint.created_at)}</span>
+                    <a
+                      className="cell-note"
+                      href={pageHref('evaluations', location.search, {
+                        kind: 'checkpoint',
+                        id: checkpoint.id,
+                      })}
+                    >
+                      View evaluations
+                    </a>
                   </td>
                   <td>
                     <div className="role-list">
@@ -867,10 +876,47 @@ export function CheckpointsView({
   )
 }
 
-export function EvaluationsView({ data }: { data: DashboardData }) {
-  const evaluations = [...data.evaluations].sort(
-    (a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id),
+export function EvaluationsView({
+  data,
+  selected,
+  onSelect,
+  selectedAttempt,
+  onSelectAttempt,
+}: {
+  data: DashboardData
+  selected: string | null
+  onSelect: (id: string | null) => void
+  selectedAttempt: string | null
+  onSelectAttempt: (id: string | null) => void
+}) {
+  const attempts = [...data.lineage.attempts.items].sort(
+    (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
   )
+  const attemptLabels = new Map(
+    attempts.map((attempt, index) => [attempt.id, `Attempt ${String(index + 1).padStart(2, '0')}`]),
+  )
+  const checkpointLabel = (checkpoint: CheckpointDetail) => {
+    const attempt = checkpoint.attempt_id
+      ? (attemptLabels.get(checkpoint.attempt_id) ?? `Attempt ${shortId(checkpoint.attempt_id)}`)
+      : 'Imported'
+    return `${attempt} · Episode ${number(checkpoint.episode)} · ${shortId(checkpoint.id)}`
+  }
+  const checkpoints = data.checkpoints
+    .filter(
+      (checkpoint) => !selectedAttempt || (checkpoint.attempt_id ?? 'imported') === selectedAttempt,
+    )
+    .sort((a, b) => a.episode - b.episode || a.id.localeCompare(b.id))
+  const checkpointIds = new Set(checkpoints.map((checkpoint) => checkpoint.id))
+  const selectedCheckpoint = data.checkpoints.find((checkpoint) => checkpoint.id === selected)
+  const evaluations = data.evaluations
+    .filter((e) =>
+      selected
+        ? e.checkpoint_id === selected || e.opponent_checkpoint_id === selected
+        : !selectedAttempt ||
+          checkpointIds.has(e.checkpoint_id) ||
+          checkpointIds.has(e.opponent_checkpoint_id ?? ''),
+    )
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
   return (
     <section>
       <SectionTitle
@@ -880,8 +926,66 @@ export function EvaluationsView({ data }: { data: DashboardData }) {
         subtitle="Every evaluation batch and suite. Scores belong to the subject checkpoint; draws count as half a win."
         right={<span className="section-count">{number(evaluations.length)} batches</span>}
       />
+      <div className="evaluation-filters">
+        <label className="experiment-control">
+          ATTEMPT
+          <select
+            aria-label="Attempt"
+            value={selectedAttempt ?? ''}
+            onChange={(event) => onSelectAttempt(event.target.value || null)}
+          >
+            <option value="">All attempts</option>
+            <option value="imported">Imported checkpoints</option>
+            {selectedAttempt &&
+              selectedAttempt !== 'imported' &&
+              !attemptLabels.has(selectedAttempt) && (
+                <option value={selectedAttempt}>
+                  Unknown attempt · {shortId(selectedAttempt)}
+                </option>
+              )}
+            {attempts.map((attempt) => (
+              <option key={attempt.id} value={attempt.id}>
+                {attemptLabels.get(attempt.id)} · {shortId(attempt.id)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="experiment-control">
+          CHECKPOINT
+          <select
+            aria-label="Checkpoint"
+            aria-describedby="checkpoint-filter-help"
+            value={selected ?? ''}
+            onChange={(event) => onSelect(event.target.value || null)}
+          >
+            <option value="">All checkpoints</option>
+            {selected && !checkpoints.some((checkpoint) => checkpoint.id === selected) && (
+              <option value={selected}>
+                {selectedCheckpoint
+                  ? checkpointLabel(selectedCheckpoint)
+                  : `Unknown checkpoint · ${shortId(selected)}`}
+              </option>
+            )}
+            {checkpoints.map((checkpoint) => (
+              <option key={checkpoint.id} value={checkpoint.id}>
+                {checkpointLabel(checkpoint)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p id="checkpoint-filter-help" className="section-note">
+          Choose an attempt to narrow checkpoint choices. Includes evaluations with the selected
+          checkpoint, or any checkpoint from the selected attempt, on either side.
+        </p>
+      </div>
       {!evaluations.length && (
-        <Empty>Evaluation results will appear after the first screening or challenge.</Empty>
+        <Empty>
+          {selected
+            ? 'No evaluations found for this checkpoint.'
+            : selectedAttempt
+              ? 'No evaluations found for this attempt.'
+              : 'Evaluation results will appear after the first screening or challenge.'}
+        </Empty>
       )}
       <div className="evaluation-list">
         {evaluations.map((evaluation) => (

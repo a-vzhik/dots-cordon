@@ -17,4 +17,20 @@ describe('page URLs', () => {
       '/evaluations?experiment=run#evaluation-batch',
     )
   })
+  it('links to checkpoint evaluations without an unrelated anchor', () => {
+    expect(
+      pageHref('evaluations', '?experiment=run&checkpoint=old&attempt=previous', {
+        kind: 'checkpoint',
+        id: 'champion',
+      }),
+    ).toBe('/evaluations?experiment=run&checkpoint=champion')
+  })
+  it('clears checkpoint and attempt filters when linking to a specific batch', () => {
+    expect(
+      pageHref('evaluations', '?experiment=run&checkpoint=old&attempt=previous', {
+        kind: 'evaluation',
+        id: 'batch',
+      }),
+    ).toBe('/evaluations?experiment=run#evaluation-batch')
+  })
 })

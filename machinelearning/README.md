@@ -214,6 +214,19 @@ horizontally; attempts occupy separate rows. Click a checkpoint to inspect it.
 Scores always describe the evaluated checkpoint, and incomplete aggregates
 are labeled partial.
 
+On Evaluations, select an attempt to narrow the checkpoint choices. Checkpoint
+labels include the attempt number so repeated episodes are distinguishable;
+imported checkpoints have their own option. Select a checkpoint to show every
+batch where it is either the subject or the opponent, including screening,
+regular, and extended challenges against checkpoints from any attempt.
+With an attempt selected and **All checkpoints**, evaluations involving any
+checkpoint from that attempt are shown. Changing the attempt clears the checkpoint.
+Both filters are shareable as
+`/evaluations?experiment=<experiment-id>&attempt=<attempt-id>&checkpoint=<checkpoint-id>`.
+Choose **All attempts** and **All checkpoints** to clear them, or use
+**View evaluations** in the checkpoint ledger to open one checkpoint's history.
+Scores keep their original subject-checkpoint orientation.
+
 For champion-loop attempts, **Best in attempt** marks the highest-ranked
 candidate after all screening evaluations finish: match score first, mean score
 difference next, then the earlier candidate on an exact tie. It is selected even

@@ -51,6 +51,9 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(() =>
     new URLSearchParams(location.search).get('checkpoint'),
   )
+  const [selectedAttempt, setSelectedAttempt] = useState<string | null>(() =>
+    new URLSearchParams(location.search).get('attempt'),
+  )
   useEffect(() => {
     const controller = new AbortController()
     setListLoading(true)
@@ -77,9 +80,15 @@ export default function App() {
     return () => controller.abort()
   }, [listRetry])
   const { data, error, refreshing, updatedAt, refresh } = useDashboard(experiment, paused, page)
-  const chooseCheckpoint = useCallback((id: string) => {
+  const chooseCheckpoint = useCallback((id: string | null) => {
     setSelected(id)
     updateUrl('checkpoint', id)
+  }, [])
+  const chooseAttempt = useCallback((id: string | null) => {
+    setSelectedAttempt(id)
+    setSelected(null)
+    updateUrl('attempt', id)
+    updateUrl('checkpoint', null)
   }, [])
   const visibleData = data?.experiment === experiment && data.page === page ? data : null
   useEffect(() => {
@@ -154,8 +163,10 @@ export default function App() {
                 onChange={(e) => {
                   setExperiment(e.target.value)
                   setSelected(null)
+                  setSelectedAttempt(null)
                   updateUrl('experiment', e.target.value)
                   updateUrl('checkpoint', null)
+                  updateUrl('attempt', null)
                 }}
                 disabled={!experiments.length}
               >
@@ -263,7 +274,15 @@ export default function App() {
             {visibleData.page === 'checkpoints' && (
               <CheckpointsView data={visibleData.data} selected={selected} />
             )}
-            {visibleData.page === 'evaluations' && <EvaluationsView data={visibleData.data} />}
+            {visibleData.page === 'evaluations' && (
+              <EvaluationsView
+                data={visibleData.data}
+                selected={selected}
+                onSelect={chooseCheckpoint}
+                selectedAttempt={selectedAttempt}
+                onSelectAttempt={chooseAttempt}
+              />
+            )}
           </>
         )}
         <footer className="page-footer">

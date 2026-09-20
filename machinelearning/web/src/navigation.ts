@@ -12,8 +12,19 @@ export function pageHref(
   target?: { kind: 'checkpoint' | 'attempt' | 'evaluation'; id: string },
 ) {
   const params = new URLSearchParams(search)
-  if (target?.kind === 'checkpoint') params.set('checkpoint', target.id)
+  if (target?.kind === 'checkpoint') {
+    params.set('checkpoint', target.id)
+    params.delete('attempt')
+  }
+  // A direct batch link must remain visible regardless of the current filter.
+  if (target?.kind === 'evaluation') {
+    params.delete('checkpoint')
+    params.delete('attempt')
+  }
   const query = params.toString()
-  const hash = target ? `#${target.kind}-${encodeURIComponent(target.id)}` : ''
+  const hash =
+    target && !(page === 'evaluations' && target.kind === 'checkpoint')
+      ? `#${target.kind}-${encodeURIComponent(target.id)}`
+      : ''
   return `/${page}${query ? `?${query}` : ''}${hash}`
 }
