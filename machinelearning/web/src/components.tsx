@@ -88,10 +88,17 @@ export function JsonDetails({ title, value }: { title: string; value: unknown })
     </details>
   )
 }
-function CheckpointLink({ id, data }: { id: string; data: { checkpoints: Checkpoint[]; lineage?: Lineage } }) {
-  const checkpoint = data.checkpoints.find((c) => c.id === id)
-    ?? data.lineage?.checkpoints.items.find((c) => c.id === id)
-    ?? data.lineage?.boundary_checkpoints.find((c) => c.id === id)
+function CheckpointLink({
+  id,
+  data,
+}: {
+  id: string
+  data: { checkpoints: Checkpoint[]; lineage?: Lineage }
+}) {
+  const checkpoint =
+    data.checkpoints.find((c) => c.id === id) ??
+    data.lineage?.checkpoints.items.find((c) => c.id === id) ??
+    data.lineage?.boundary_checkpoints.find((c) => c.id === id)
   return (
     <a
       href={pageHref('checkpoints', location.search, { kind: 'checkpoint', id: id })}

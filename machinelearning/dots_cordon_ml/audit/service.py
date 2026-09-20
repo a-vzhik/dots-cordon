@@ -280,7 +280,6 @@ class AuditService:
             blob = blobs.put(
                 payload,
                 identifier=new_id(),
-                created_at=now(),
                 format_version=int(state.get("format_version", 1)),
             )
             if checkpoint_id:

@@ -17,7 +17,9 @@ def parser():
     commands = root.add_subparsers(dest="command", required=True)
     db = commands.add_parser("db", help="Manage versioned schema migrations")
     db_commands = db.add_subparsers(dest="db_command", required=True)
-    db_commands.add_parser("upgrade")
+    db_commands.add_parser(
+        "upgrade", help="Back up an existing SQLite database before applying migrations"
+    )
     db_commands.add_parser("status")
     for name in ("import", "bootstrap"):
         child = commands.add_parser(

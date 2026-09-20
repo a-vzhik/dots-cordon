@@ -1,8 +1,10 @@
 """Connection policy, transaction ownership, and migration lifecycle."""
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
+from datetime import datetime
 import os
 from pathlib import Path
+import sqlite3
 
 from alembic import command
 from alembic.config import Config
@@ -95,11 +97,76 @@ class Database:
     def upgrade(self) -> dict:
         if self.read_only:
             raise AuditError("The read API cannot apply migrations")
+        status = self.status()
+        if status["up_to_date"]:
+            return {**status, "backup_path": None}
         config = migration_config()
-        with self.engine.begin() as connection:
-            config.attributes["connection"] = connection
-            command.upgrade(config, "head")
-        return self.status()
+        backup_path = None
+        with self.engine.connect() as connection:
+            if connection.dialect.name == "sqlite":
+                # Prevent writes between the backup snapshot and migration.
+                # Use a separate read connection for SQLite's backup API: it
+                # cannot back up a connection with its own write transaction.
+                connection.exec_driver_sql("BEGIN IMMEDIATE")
+            else:
+                connection.begin()
+            try:
+                # Another upgrader may have finished while we waited for the lock.
+                current = MigrationContext.configure(connection).get_current_revision()
+                if current != status["head_revision"]:
+                    if sa.inspect(connection).get_table_names():
+                        backup_path = self._backup_before_upgrade(connection)
+                    config.attributes["connection"] = connection
+                    command.upgrade(config, "head")
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        return {**self.status(), "backup_path": str(backup_path) if backup_path else None}
+
+    def _backup_before_upgrade(self, connection) -> Path:
+        if connection.dialect.name != "sqlite":
+            raise AuditError(
+                "Automatic pre-migration backups currently support SQLite only; "
+                "the migration was not applied."
+            )
+        database_path = next(
+            row[2]
+            for row in connection.exec_driver_sql("PRAGMA database_list")
+            if row[1] == "main"
+        )
+        if not database_path:
+            raise AuditError("Cannot create a file backup of an in-memory database")
+        source_path = Path(database_path)
+        stamp = datetime.now().strftime("%Y%d%m-%H%M%S")
+        backup_path = source_path.with_name(
+            f"{source_path.stem}-{stamp}{source_path.suffix or '.sqlite3'}"
+        )
+        created = False
+        try:
+            # Exclusive creation prevents overwriting another backup made in
+            # the same second. A failed attempt removes only its own file.
+            descriptor = os.open(backup_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            created = True
+            with os.fdopen(descriptor, "wb") as output:
+                with (
+                    closing(sqlite3.connect(f"{source_path.as_uri()}?mode=ro", uri=True)) as source,
+                    closing(sqlite3.connect(backup_path)) as destination,
+                ):
+                    source.backup(destination, pages=1024)
+                    if destination.execute("PRAGMA quick_check").fetchall() != [("ok",)]:
+                        raise AuditError("Database backup failed its integrity check")
+                os.fsync(output.fileno())
+        except BaseException as exc:
+            if created:
+                backup_path.unlink(missing_ok=True)
+            if isinstance(exc, (OSError, sqlite3.Error, AuditError)):
+                raise AuditError(
+                    f"Could not create pre-migration backup {backup_path}; "
+                    f"the migration was not applied: {exc}"
+                ) from exc
+            raise
+        return backup_path
 
     @contextmanager
     def transaction(self):

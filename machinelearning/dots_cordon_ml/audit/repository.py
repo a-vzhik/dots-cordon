@@ -264,10 +264,16 @@ class CheckpointBlobRepository:
     def __init__(self, connection):
         self.connection = connection
 
-    def put(self, payload: bytes, *, identifier, created_at, format_version):
+    def put(self, payload: bytes, *, identifier, format_version):
         digest = hashlib.sha256(payload).hexdigest()
         table = s.checkpoint_blobs
-        columns = [column for column in table.c if column.name != "payload"]
+        columns = [
+            table.c.id,
+            table.c.sha256,
+            table.c.byte_length,
+            table.c.format,
+            table.c.format_version,
+        ]
         existing = (
             self.connection.execute(sa.select(*columns).where(table.c.sha256 == digest))
             .mappings()
@@ -284,7 +290,6 @@ class CheckpointBlobRepository:
             format="pytorch",
             format_version=format_version,
             payload=payload,
-            created_at=created_at,
         )
         self.connection.execute(table.insert().values(**values))
         values.pop("payload")

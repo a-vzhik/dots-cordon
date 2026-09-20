@@ -194,8 +194,15 @@ class AuditReadRepository(AuditRepository):
         return self.rows(sa.select(s.checkpoints).where(s.checkpoints.c.id.in_(ids)))
 
     def blobs(self, ids):
+        # Keep this projection explicit: metadata after a large payload can
+        # require walking SQLite overflow pages even when payload is omitted.
+        table = s.checkpoint_blobs
         columns = [
-            column for column in s.checkpoint_blobs.c if column.name != "payload"
+            table.c.id,
+            table.c.sha256,
+            table.c.byte_length,
+            table.c.format,
+            table.c.format_version,
         ]
         return (
             self.rows(sa.select(*columns).where(s.checkpoint_blobs.c.id.in_(ids)))

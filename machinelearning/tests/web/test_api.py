@@ -650,6 +650,9 @@ def test_metadata_queries_are_batched_and_never_fetch_blob_payloads(
         assert not any(
             "checkpoint_blobs.payload" in statement for statement in statements
         )
+        assert not any(
+            "checkpoint_blobs.created_at" in statement for statement in statements
+        )
     finally:
         sa.event.remove(engine, "before_cursor_execute", trace)
 

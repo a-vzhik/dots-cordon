@@ -1,7 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
+import hashlib
 import importlib
 
+from alembic import command
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
@@ -16,6 +18,7 @@ from dots_cordon_ml.audit import (
     SchemaVersionError,
 )
 from dots_cordon_ml.audit import schema
+from dots_cordon_ml.audit.database import migration_config
 from dots_cordon_ml.audit.repository import AuditRepository
 
 
@@ -174,6 +177,78 @@ def test_postgres_migration_defers_cyclic_foreign_keys():
     assert sql.index("ALTER TABLE") > sql.rindex("CREATE TABLE")
     assert sql.count("CREATE TABLE") == 9
     assert "REFERENCES champion_history (id)" in sql
+
+
+def test_drop_blob_timestamp_preserves_existing_weights_and_references(tmp_path):
+    url = f"sqlite:///{tmp_path / 'legacy.sqlite3'}"
+    database = Database(url)
+    config = migration_config()
+    with database.engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "0002_operations")
+
+    path = checkpoint_file(tmp_path)
+    payload = path.read_bytes()
+    blob = dict(
+        id="legacy-blob",
+        sha256=hashlib.sha256(payload).hexdigest(),
+        byte_length=len(payload),
+        format="pytorch",
+        format_version=1,
+        payload=payload,
+        created_at="2026-01-01T00:00:00.000000+00:00",
+    )
+    with database.engine.begin() as connection:
+        legacy = sa.Table("checkpoint_blobs", sa.MetaData(), autoload_with=connection)
+        connection.execute(legacy.insert().values(**blob))
+
+    # Existing payloads can be deduplicated without selecting the legacy
+    # timestamp, even before its physical removal from the database.
+    with AuditService(url, check_schema=False) as service:
+        experiment = service.ensure_experiment("legacy", {"rows": 7, "columns": 7})
+        statements = []
+
+        def trace(_connection, _cursor, statement, _parameters, _context, _many):
+            statements.append(statement)
+
+        sa.event.listen(service.database.engine, "before_cursor_execute", trace)
+        try:
+            first = service.import_checkpoint(
+                experiment["id"], path, checkpoint_id="first-checkpoint"
+            )
+            second = service.import_checkpoint(
+                experiment["id"], path, checkpoint_id="second-checkpoint"
+            )
+        finally:
+            sa.event.remove(service.database.engine, "before_cursor_execute", trace)
+        assert first["checkpoint_blob_id"] == second["checkpoint_blob_id"] == blob["id"]
+        assert not any(
+            "checkpoint_blobs.created_at" in sql or "checkpoint_blobs.payload" in sql
+            for sql in statements
+        )
+
+    assert database.upgrade()["up_to_date"]
+    assert database.upgrade()["up_to_date"]
+    with database.engine.connect() as connection:
+        assert "created_at" not in {
+            column["name"]
+            for column in sa.inspect(connection).get_columns("checkpoint_blobs")
+        }
+        stored = connection.execute(sa.select(schema.checkpoint_blobs)).mappings().one()
+        assert dict(stored) == {key: value for key, value in blob.items() if key != "created_at"}
+        assert connection.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+        assert sa.inspect(connection).get_unique_constraints("checkpoint_blobs") == [
+            {"name": "uq_checkpoint_blobs_sha256", "column_names": ["sha256"]}
+        ]
+    database.close()
+
+    with AuditService(url) as service:
+        for checkpoint in (first, second):
+            assert service.get_checkpoint(checkpoint["id"]) == checkpoint
+            exported = service.export_checkpoint(checkpoint["id"], tmp_path / "export.pt")
+            assert exported.read_bytes() == payload
+        with service.reader() as reader:
+            assert reader.checkpoint(first["id"])["blob"]["sha256"] == blob["sha256"]
 
 
 def test_full_blob_round_trip_and_branch_identity(service, tmp_path):

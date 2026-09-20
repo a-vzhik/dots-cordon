@@ -172,6 +172,18 @@ When importing or bootstrapping an experiment with a turn limit, pass the same
 Keep SQLite on local disk. Use SQLite's online backup mechanism for a backup
 while training is active; copying only the main file can omit WAL data.
 
+`dots-cordon-audit db upgrade` automatically backs up an existing SQLite database
+**before applying pending migrations**, using SQLite's backup API to include
+committed WAL data. The backup is stored beside the database as
+`{dbname}-yyyyddmm-HHMMSS.{extension}` using local time, for example
+`training-20262009-143005.sqlite3`. The command reports its path as `backup_path`.
+Backup failure or an existing backup with the same filename stops the upgrade.
+Writers are blocked during backup and migration. Fresh databases with no tables
+and upgrades with no pending migrations need no backup (`backup_path` is null).
+Backups remain available if a migration fails. Automatic migration backups for
+existing non-SQLite databases are not implemented; those upgrades stop rather
+than proceed without a backup.
+
 Pass `--no-audit` for the previous file-only behavior. This mode does not update
 the database champion or retain database evidence.
 

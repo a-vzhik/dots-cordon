@@ -83,7 +83,6 @@ checkpoint_blobs = sa.Table(
     sa.Column("format", sa.String(64), nullable=False),
     sa.Column("format_version", sa.Integer, nullable=False),
     sa.Column("payload", sa.LargeBinary, nullable=False),
-    timestamp("created_at"),
     sa.CheckConstraint("byte_length > 0", name="nonempty"),
 )
 
