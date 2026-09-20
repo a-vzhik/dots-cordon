@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { loadDashboard, ReadCache } from './api/client'
-import type { DashboardData } from './api/types'
+import { loadPage, ReadCache } from './api/client'
+import type { PageData } from './api/client'
+import type { DashboardPage } from './navigation'
 
-export function useDashboard(experiment: string, paused: boolean) {
-  const [data, setData] = useState<DashboardData | null>(null)
+export function useDashboard(experiment: string, paused: boolean, page: DashboardPage) {
+  const [data, setData] = useState<PageData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const refreshRef = useRef<() => void>(() => {})
-  const previousExperiment = useRef<string | null>(null)
+  const previousPage = useRef<string | null>(null)
   useEffect(() => {
     if (!experiment) return
-    const changed = previousExperiment.current !== experiment
-    previousExperiment.current = experiment
+    const key = `${experiment}:${page}`
+    const changed = previousPage.current !== key
+    previousPage.current = key
     if (changed) {
       setData(null)
       setUpdatedAt(null)
@@ -31,7 +33,7 @@ export function useDashboard(experiment: string, paused: boolean) {
       busy = true
       setRefreshing(true)
       try {
-        const next = await loadDashboard(experiment, signal, cache)
+        const next = await loadPage(experiment, page, signal, cache)
         if (!disposed && !signal.aborted) {
           setData(next)
           setUpdatedAt(Date.now())
@@ -67,7 +69,7 @@ export function useDashboard(experiment: string, paused: boolean) {
       controller?.abort()
       document.removeEventListener('visibilitychange', visibility)
     }
-  }, [experiment, paused])
+  }, [experiment, paused, page])
   const refresh = useCallback(() => refreshRef.current(), [])
   return { data, error, refreshing, updatedAt, refresh }
 }

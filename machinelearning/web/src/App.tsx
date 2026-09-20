@@ -23,6 +23,7 @@ import {
   Overview,
 } from './components'
 import { useDashboard } from './useDashboard'
+import { currentPage, pageHref } from './navigation'
 
 function updateUrl(key: string, value: string | null) {
   const url = new URL(window.location.href)
@@ -32,6 +33,15 @@ function updateUrl(key: string, value: string | null) {
 }
 
 export default function App() {
+  const page = currentPage(location.pathname)
+  const pageTitle = {
+    overview: 'Overview',
+    lineage: 'Weight lineage',
+    attempts: 'Attempts',
+    checkpoints: 'Checkpoints',
+    evaluations: 'Evaluations',
+  }[page]
+  const href = (target: typeof page) => pageHref(target, location.search)
   const [experiments, setExperiments] = useState<Experiment[]>([])
   const [experiment, setExperiment] = useState('')
   const [listError, setListError] = useState<string | null>(null)
@@ -66,17 +76,21 @@ export default function App() {
       })
     return () => controller.abort()
   }, [listRetry])
-  const { data, error, refreshing, updatedAt, refresh } = useDashboard(experiment, paused)
+  const { data, error, refreshing, updatedAt, refresh } = useDashboard(experiment, paused, page)
   const chooseCheckpoint = useCallback((id: string) => {
     setSelected(id)
     updateUrl('checkpoint', id)
   }, [])
-  const visibleData = data?.lineage.experiment.id === experiment ? data : null
+  const visibleData = data?.experiment === experiment && data.page === page ? data : null
+  useEffect(() => {
+    if (!data || !location.hash) return
+    document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView()
+  }, [data?.page, data?.experiment])
   const failure = listError ?? error
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <a className="brand" href="#overview">
+        <a className="brand" href={href('overview')}>
           <span className="brand-mark">
             <i />
             <i />
@@ -90,19 +104,19 @@ export default function App() {
         </a>
         <div className="nav-label">WORKSPACE</div>
         <nav aria-label="Dashboard sections">
-          <a href="#overview">
+          <a href={href('overview')} aria-current={page === 'overview' ? 'page' : undefined}>
             <Activity size={17} /> Overview
           </a>
-          <a href="#lineage">
+          <a href={href('lineage')} aria-current={page === 'lineage' ? 'page' : undefined}>
             <GitBranch size={17} /> Weight lineage
           </a>
-          <a href="#attempts">
+          <a href={href('attempts')} aria-current={page === 'attempts' ? 'page' : undefined}>
             <Layers3 size={17} /> Attempts
           </a>
-          <a href="#checkpoints">
+          <a href={href('checkpoints')} aria-current={page === 'checkpoints' ? 'page' : undefined}>
             <Database size={17} /> Checkpoints
           </a>
-          <a href="#evidence">
+          <a href={href('evaluations')} aria-current={page === 'evaluations' ? 'page' : undefined}>
             <Trophy size={17} /> Evaluations
           </a>
         </nav>
@@ -119,14 +133,15 @@ export default function App() {
           </a>
         </div>
       </aside>
-      <main id="overview">
+      <main>
         <header className="page-header">
           <div>
             <div className="breadcrumb">
               Dots Cordon <span>/</span> Machine learning
             </div>
             <h1>
-              Training workspace<span>.</span>
+              {pageTitle}
+              <span>.</span>
             </h1>
             <p>Follow the weights. See what made the champion.</p>
           </div>
@@ -219,7 +234,7 @@ export default function App() {
           <div className="loading-state" role="status">
             <RefreshCw size={21} className="spinning" />
             <strong>Reading training history…</strong>
-            <span>Loading checkpoints, attempts, and evaluation evidence.</span>
+            <span>Loading {pageTitle.toLowerCase()}.</span>
           </div>
         )}
         {!listLoading && !listError && !experiments.length && (
@@ -227,19 +242,28 @@ export default function App() {
             No experiments yet. Start an audited training attempt, then refresh this page.
           </Empty>
         )}
-        {visibleData && (
+        {visibleData?.page === 'overview' && (
           <>
-            <Overview data={visibleData} />
-            <LineageView data={visibleData} selected={selected} onSelect={chooseCheckpoint} />
-            <AttemptsView data={visibleData} />
-            <CheckpointsView data={visibleData} selected={selected} />
-            <EvaluationsView data={visibleData} />
+            <Overview data={visibleData.data} />
             <div className="experiment-details">
-              <JsonDetails
-                title="Experiment configuration"
-                value={visibleData.lineage.experiment}
-              />
+              <JsonDetails title="Experiment configuration" value={visibleData.data} />
             </div>
+          </>
+        )}
+        {visibleData && visibleData.page !== 'overview' && (
+          <>
+            {visibleData.page === 'lineage' && (
+              <LineageView
+                data={visibleData.data}
+                selected={selected}
+                onSelect={chooseCheckpoint}
+              />
+            )}
+            {visibleData.page === 'attempts' && <AttemptsView data={visibleData.data} />}
+            {visibleData.page === 'checkpoints' && (
+              <CheckpointsView data={visibleData.data} selected={selected} />
+            )}
+            {visibleData.page === 'evaluations' && <EvaluationsView data={visibleData.data} />}
           </>
         )}
         <footer className="page-footer">

@@ -1,5 +1,7 @@
 import type {
   AttemptDetail,
+  Attempt,
+  AttemptsData,
   CheckpointDetail,
   DashboardData,
   Evaluation,
@@ -9,6 +11,8 @@ import type {
   Metrics,
   Page,
 } from './types'
+
+import type { DashboardPage } from '../navigation'
 
 const prefix = '/api/v1'
 export async function request<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -153,7 +157,7 @@ async function readAttempt(id: string, signal: AbortSignal): Promise<AttemptDeta
   }
 }
 
-async function readCheckpoint(id: string, signal: AbortSignal): Promise<CheckpointDetail> {
+export async function readCheckpoint(id: string, signal: AbortSignal): Promise<CheckpointDetail> {
   let first: CheckpointDetail | undefined
   const items = await readPages<Evaluation>(async (cursor) => {
     const detail: CheckpointDetail = await request(
@@ -217,25 +221,16 @@ export async function loadDashboard(
   experiment: string,
   signal: AbortSignal,
   cache: ReadCache,
+  page: Exclude<DashboardPage, 'overview' | 'attempts'>,
 ): Promise<DashboardData> {
   const lineage = await readLineage(experiment, signal)
   const active = new Set(
     lineage.attempts.items.filter((a) => a.status === 'running').map((a) => a.id),
   )
-  const attemptResults = await pool(lineage.attempts.items, async (attempt) => {
-    const version = `${attempt.updated_at}:${attempt.counts.checkpoints}:${attempt.latest_episode}`
-    const detail = await cache.get(`attempt:${attempt.id}`, version, active.has(attempt.id), () =>
-      readAttempt(attempt.id, signal),
-    )
-    const metrics = await cache.get<Metrics>(
-      `metrics:${attempt.id}`,
-      version,
-      active.has(attempt.id),
-      () => request(query(`/attempts/${attempt.id}/metrics`, { max_points: 120 }), signal),
-    )
-    return { detail, metrics }
-  })
-  const nodes = [...lineage.checkpoints.items, ...lineage.boundary_checkpoints]
+  const nodes =
+    page === 'checkpoints' || page === 'evaluations'
+      ? [...lineage.checkpoints.items, ...lineage.boundary_checkpoints]
+      : []
   const checkpoints = await pool(nodes, (node) =>
     cache.get(
       `checkpoint:${node.id}`,
@@ -253,7 +248,7 @@ export async function loadDashboard(
   checkpoints.forEach((checkpoint) =>
     checkpoint.evaluations.items.forEach((e) => summaries.set(e.id, e)),
   )
-  const evaluations = await pool([...summaries.values()], (batch) =>
+  const evaluations = await pool(page === 'evaluations' ? [...summaries.values()] : [], (batch) =>
     cache.get(
       `evaluation:${batch.id}`,
       `${batch.status}:${batch.completed_suite_count}:${batch.heartbeat_at}`,
@@ -265,7 +260,68 @@ export async function loadDashboard(
     lineage,
     checkpoints,
     evaluations,
+    attempts: [],
+    metrics: {},
+  }
+}
+
+async function loadAttempts(
+  experiment: string,
+  signal: AbortSignal,
+  cache: ReadCache,
+): Promise<AttemptsData> {
+  const attempts = await readPages<Attempt>((cursor) =>
+    request(query('/attempts', { experiment_id: experiment, limit: 200, cursor }), signal),
+  )
+  const active = new Set(
+    attempts.filter((attempt) => attempt.status === 'running').map((attempt) => attempt.id),
+  )
+  const attemptResults = await pool(attempts, async (attempt) => {
+    const version = `${attempt.updated_at}:${attempt.counts.checkpoints}:${attempt.latest_episode}`
+    const detail = await cache.get(`attempt:${attempt.id}`, version, active.has(attempt.id), () =>
+      readAttempt(attempt.id, signal),
+    )
+    const metrics = await cache.get<Metrics>(
+      `metrics:${attempt.id}`,
+      version,
+      active.has(attempt.id),
+      () => request(query(`/attempts/${attempt.id}/metrics`, { max_points: 120 }), signal),
+    )
+    return { detail, metrics }
+  })
+  return {
     attempts: attemptResults.map((a) => a.detail),
+    checkpoints: attemptResults.flatMap((a) => a.detail.checkpoints.items),
     metrics: Object.fromEntries(attemptResults.map((a) => [a.detail.id, a.metrics])),
   }
+}
+
+export type PageData =
+  | { page: 'overview'; experiment: string; data: Experiment }
+  | { page: 'attempts'; experiment: string; data: AttemptsData }
+  | {
+      page: Exclude<DashboardPage, 'overview' | 'attempts'>
+      experiment: string
+      data: DashboardData
+    }
+
+export async function loadPage(
+  experiment: string,
+  page: DashboardPage,
+  signal: AbortSignal,
+  cache: ReadCache,
+): Promise<PageData> {
+  if (page === 'overview') {
+    return {
+      page,
+      experiment,
+      data: await request(
+        `${prefix}/experiments/${encodeURIComponent(experiment)}/overview`,
+        signal,
+      ),
+    }
+  }
+  if (page === 'attempts')
+    return { page, experiment, data: await loadAttempts(experiment, signal, cache) }
+  return { page, experiment, data: await loadDashboard(experiment, signal, cache, page) }
 }

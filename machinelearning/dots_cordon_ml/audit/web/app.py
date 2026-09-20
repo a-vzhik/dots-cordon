@@ -200,6 +200,15 @@ def create_app(
             return reader.experiments(limit, cursor)
 
     @app.get(
+        "/api/v1/experiments/{id}/overview",
+        response_model=dto.Experiment,
+        tags=["experiments"],
+    )
+    def overview(request: Request, id: str):
+        with request.app.state.audit.reader() as reader:
+            return reader.overview(id)
+
+    @app.get(
         "/api/v1/experiments/{id}/lineage",
         response_model=dto.Lineage,
         tags=["experiments"],
@@ -399,6 +408,11 @@ def create_app(
     )
 
     @app.get("/", include_in_schema=False)
+    @app.get("/overview", include_in_schema=False)
+    @app.get("/lineage", include_in_schema=False)
+    @app.get("/attempts", include_in_schema=False)
+    @app.get("/checkpoints", include_in_schema=False)
+    @app.get("/evaluations", include_in_schema=False)
     def dashboard():
         index = static_dir / "index.html"
         if not index.is_file():

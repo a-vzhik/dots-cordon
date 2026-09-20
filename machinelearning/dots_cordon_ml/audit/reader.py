@@ -264,6 +264,24 @@ class AuditReader:
         ]
         return json_safe(page)
 
+    def overview(self, identifier):
+        experiment = self.repository.experiment(identifier)
+        assignment_id = experiment["current_champion_assignment_id"]
+        champion = None
+        if assignment_id:
+            assignment = self.repository.required("champion_history", assignment_id)
+            checkpoint = self.repository.required("checkpoints", assignment["checkpoint_id"])
+            champion = {
+                "assignment": assignment,
+                "checkpoint": self.checkpoint_summaries([checkpoint], evidence=False)[0],
+                "branches": self.repository.counts(experiment["id"], checkpoint["id"]),
+            }
+        return json_safe({
+            **experiment,
+            "counts": self.repository.experiment_counts([experiment["id"]])[experiment["id"]],
+            "current_champion": champion,
+        })
+
     def attempts(self, **params):
         if params.get("experiment_id"):
             params["experiment_id"] = self.repository.experiment(

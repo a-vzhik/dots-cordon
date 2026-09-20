@@ -175,7 +175,7 @@ h3 {
   color: #b5cabc;
   font-size: 12px;
 }
-.sidebar nav a:first-child {
+.sidebar nav a[aria-current='page'] {
   background: #2d5041;
   color: #f4f8f1;
 }
@@ -1406,7 +1406,7 @@ tbody > tr:last-child td {
   .sidebar nav a svg {
     width: 13px;
   }
-  .sidebar nav a:first-child {
+  .sidebar nav a[aria-current='page'] {
     display: none;
   }
   main {

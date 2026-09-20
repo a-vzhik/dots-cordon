@@ -127,7 +127,7 @@ def get(client, path, **params):
 def test_health_openapi_and_read_only_routes(client, history):
     assert get(client, "/health")["schema"] == "compatible"
     spec = get(client, "/openapi.json")
-    assert len(spec["paths"]) == 9
+    assert len(spec["paths"]) == 10
     assert all(set(methods) == {"get"} for methods in spec["paths"].values())
     assert spec["paths"]["/api/v1/checkpoints/{id}"]["get"]["responses"]["200"][
         "content"
@@ -652,3 +652,30 @@ def test_metadata_queries_are_batched_and_never_fetch_blob_payloads(
         )
     finally:
         sa.event.remove(engine, "before_cursor_execute", trace)
+
+
+def test_overview_matches_lineage_summary_without_loading_history(client, audit, history, monkeypatch):
+    service, _ = audit
+    experiment, champion, assignment, _ = history
+    branch(service, experiment, champion, assignment)
+    graph = get(client, "/api/v1/experiments/test/lineage")
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Overview must not read history pages or evaluation evidence")
+
+    for method in ("lineage_pages", "attempts_page", "metrics", "evaluations_page", "suites_page", "recent_per_checkpoint", "payload"):
+        monkeypatch.setattr(AuditReadRepository, method, unexpected)
+    overview = get(client, f"/api/v1/experiments/{experiment['id']}/overview")
+    assert overview["id"] == experiment["id"]
+    assert overview["counts"] == graph["counts"]
+    assert overview["current_champion"] == graph["current_champion"]
+    assert not {"attempts", "checkpoints", "edges", "champion_history"} & overview.keys()
+    assert get(client, "/api/v1/experiments/test/overview") == overview
+    assert client.get("/api/v1/experiments/missing/overview").status_code == 404
+
+
+def test_overview_without_champion(client, audit):
+    audit[0].ensure_experiment("empty", {"rows": 7, "columns": 7})
+    overview = get(client, "/api/v1/experiments/empty/overview")
+    assert overview["current_champion"] is None
+    assert overview["counts"] == {"attempts": 0, "checkpoints": 0, "evaluation_batches": 0}

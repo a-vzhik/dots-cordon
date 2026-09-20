@@ -13,7 +13,11 @@ def test_dashboard_and_assets_are_served_without_opening_database(tmp_path):
     (assets / "app.js").write_text("window.auditDashboard = true;")
     database = tmp_path / "missing.sqlite3"
     with TestClient(create_app(f"sqlite:///{database}", frontend_dir=static)) as client:
-        response = client.get("/")
+        for route in ("/", "/overview", "/lineage", "/attempts", "/checkpoints", "/evaluations"):
+            response = client.get(route)
+            assert response.status_code == 200
+            assert "/assets/app.js" in response.text
+        assert client.get("/unknown-page").status_code == 404
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
         assert response.headers["cache-control"] == "no-cache"
@@ -22,7 +26,7 @@ def test_dashboard_and_assets_are_served_without_opening_database(tmp_path):
         assert client.get("/assets/..%2Findex.html").status_code == 404
         assert client.get("/api/v1/not-a-route").status_code == 404
         assert client.post("/", json={}).status_code == 405
-        assert len(client.get("/openapi.json").json()["paths"]) == 9
+        assert len(client.get("/openapi.json").json()["paths"]) == 10
     assert not database.exists()
 
 

@@ -31,3 +31,9 @@ export interface DashboardData {
   evaluations: EvaluationDetail[]
   metrics: Record<string, Metrics>
 }
+
+export interface AttemptsData {
+  attempts: AttemptDetail[]
+  checkpoints: Checkpoint[]
+  metrics: Record<string, Metrics>
+}

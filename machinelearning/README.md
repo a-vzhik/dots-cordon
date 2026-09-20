@@ -176,7 +176,7 @@ Pass `--no-audit` for the previous file-only behavior. This mode does not update
 the database champion or retain database evidence.
 
 The implementation includes database migrations, administration commands,
-runner integration, a read-only HTTP API, and a single-page training dashboard.
+runner integration, a read-only HTTP API, and a training dashboard with separate section pages.
 
 ## Training dashboard
 
@@ -192,8 +192,11 @@ cd ..
 uv run dots-cordon-audit serve --port 8081
 ```
 
-Open **http://127.0.0.1:8081/**. The page uses the server's configured database
-and shows weight ancestry, champion history, attempts and training metrics,
+Open **http://127.0.0.1:8081/** for Overview. Use the sidebar to open
+`/lineage`, `/attempts`, `/checkpoints`, or `/evaluations`; `/overview` also
+opens Overview. Each URL supports direct loading and browser back/forward.
+The dashboard uses the server's configured database and shows weight ancestry,
+champion history, attempts and training metrics,
 checkpoint downloads, and all evaluation batches/suites. Episodes run
 horizontally; attempts occupy separate rows. Click a checkpoint to inspect it.
 Scores always describe the evaluated checkpoint, and incomplete aggregates
@@ -212,7 +215,13 @@ You can pause updates or refresh manually. Experiment/checkpoint selection is
 stored in the URL. Full configuration, provenance, policies, and exact suite
 seeds are available in expandable details.
 
-This first version fetches all metadata pages and renders them together.
+Overview reads only experiment summaries and its dedicated overview endpoint;
+it does not fetch lineage, attempt metrics, or evaluation history. Other pages
+load their own data: lineage loads the graph and fetches selected checkpoint
+details on demand; attempts loads attempt details and metrics; checkpoints
+loads the ledger and score summaries; evaluations loads full evaluation evidence
+and decisions. Links between records open the relevant page and keep the selected
+experiment. Detailed pages still fetch all metadata pages needed by their section.
 Historical details are cached for up to 30 seconds; active attempts and
 evaluations are refreshed each cycle. Training charts show up to 120 uniformly
 sampled metric records per attempt. Large histories will need pagination or

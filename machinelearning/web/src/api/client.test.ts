@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fixture, page } from '../../tests/fixtures'
-import { ReadCache, readLineage, readPages, request } from './client'
+import { loadPage, ReadCache, readLineage, readPages, request } from './client'
 import { percent, scoreLabel } from '../presentation'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -80,4 +80,76 @@ describe('audit reads', () => {
     expect(percent(null)).toBe('—')
     expect(scoreLabel(data.evaluations[0])).toBe('0.0% · partial')
   })
+})
+
+describe('page data isolation', () => {
+  function mockReads() {
+    const { data, experiment } = fixture()
+    const paths: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string) => {
+        const url = new URL(path, 'http://local')
+        paths.push(url.pathname)
+        const id = url.pathname.split('/').at(-1)
+        const body =
+          id === 'overview'
+            ? { ...experiment, current_champion: data.lineage.current_champion }
+            : id === 'lineage'
+              ? data.lineage
+              : url.pathname === '/api/v1/attempts'
+                ? page(data.lineage.attempts.items)
+                : id === 'metrics'
+                  ? data.metrics[url.pathname.split('/').at(-2)!]
+                  : url.pathname.includes('/attempts/')
+                    ? data.attempts.find((a) => a.id === id)
+                    : url.pathname.includes('/checkpoints/')
+                      ? data.checkpoints.find((c) => c.id === id)
+                      : data.evaluations.find((e) => e.id === id)
+        if (!body) throw new Error(`Unexpected request: ${path}`)
+        return Response.json(body)
+      }),
+    )
+    return { paths, experiment }
+  }
+
+  it('loads and refreshes overview without fetching any history', async () => {
+    const { paths, experiment } = mockReads()
+    const cache = new ReadCache()
+    for (let i = 0; i < 2; i++) {
+      const result = await loadPage(experiment.id, 'overview', new AbortController().signal, cache)
+      expect(result.page).toBe('overview')
+    }
+    expect(paths).toEqual(Array(2).fill(`/api/v1/experiments/${experiment.id}/overview`))
+  })
+
+  it('loads only the graph for weight lineage', async () => {
+    const { paths, experiment } = mockReads()
+    await loadPage(experiment.id, 'lineage', new AbortController().signal, new ReadCache())
+    expect(paths).toEqual([`/api/v1/experiments/${experiment.id}/lineage`])
+  })
+
+  it('loads attempts and their metrics without lineage or evaluation details', async () => {
+    const { paths, experiment } = mockReads()
+    const result = await loadPage(
+      experiment.id,
+      'attempts',
+      new AbortController().signal,
+      new ReadCache(),
+    )
+    expect(result.page === 'attempts' && result.data.attempts).toHaveLength(2)
+    expect(paths.every((path) => path.startsWith('/api/v1/attempts'))).toBe(true)
+    expect(paths.filter((path) => path.endsWith('/metrics'))).toHaveLength(2)
+  })
+
+  it.each(['checkpoints', 'evaluations'] as const)(
+    'loads %s without attempt details or metrics',
+    async (page) => {
+      const { paths, experiment } = mockReads()
+      await loadPage(experiment.id, page, new AbortController().signal, new ReadCache())
+      expect(paths.some((path) => path.includes('/attempts/'))).toBe(false)
+      expect(paths.some((path) => path.includes('/evaluations/'))).toBe(page === 'evaluations')
+      expect(paths.some((path) => path.endsWith('/download'))).toBe(false)
+    },
+  )
 })

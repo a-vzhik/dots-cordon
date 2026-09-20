@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -12,12 +12,18 @@ import {
 import type { ReactNode } from 'react'
 import type {
   AttemptDetail,
+  Checkpoint,
+  Experiment,
+  AttemptsData,
   CheckpointDetail,
   DashboardData,
   EvaluationDetail,
   Metrics,
+  Lineage,
   Stats,
 } from './api/types'
+import { readCheckpoint } from './api/client'
+import { pageHref } from './navigation'
 import { layoutLineage, nodeHeight, nodeWidth } from './layout'
 import {
   bytes,
@@ -82,17 +88,23 @@ export function JsonDetails({ title, value }: { title: string; value: unknown })
     </details>
   )
 }
-function CheckpointLink({ id, data }: { id: string; data: DashboardData }) {
+function CheckpointLink({ id, data }: { id: string; data: { checkpoints: Checkpoint[]; lineage?: Lineage } }) {
   const checkpoint = data.checkpoints.find((c) => c.id === id)
+    ?? data.lineage?.checkpoints.items.find((c) => c.id === id)
+    ?? data.lineage?.boundary_checkpoints.find((c) => c.id === id)
   return (
-    <a href={`#checkpoint-${id}`} className="checkpoint-link" title={id}>
+    <a
+      href={pageHref('checkpoints', location.search, { kind: 'checkpoint', id: id })}
+      className="checkpoint-link"
+      title={id}
+    >
       {checkpoint ? `ep ${number(checkpoint.episode)}` : shortId(id)}
       <ArrowUpRight size={12} />
     </a>
   )
 }
-export function Overview({ data }: { data: DashboardData }) {
-  const champion = data.lineage.current_champion
+export function Overview({ data }: { data: Experiment }) {
+  const champion = data.current_champion
   const branches = champion?.branches
   return (
     <div className="overview-grid">
@@ -118,9 +130,7 @@ export function Overview({ data }: { data: DashboardData }) {
       <div className="stat-card">
         <div className="stat-label">Attempts from champion</div>
         <div className="stat-value">{branches ? number(branches.attempts) : '—'}</div>
-        <div className="stat-foot">
-          {number(data.lineage.counts.attempts)} attempts in this experiment
-        </div>
+        <div className="stat-foot">{number(data.counts.attempts)} attempts in this experiment</div>
       </div>
       <div className="stat-card">
         <div className="stat-label">Qualified contenders</div>
@@ -225,7 +235,13 @@ export function LineageView({
                 </strong>
                 {lane.attempt ? (
                   <>
-                    <a href={`#attempt-${lane.attempt.id}`} className="muted mono">
+                    <a
+                      href={pageHref('attempts', location.search, {
+                        kind: 'attempt',
+                        id: lane.attempt.id,
+                      })}
+                      className="muted mono"
+                    >
                       {shortId(lane.attempt.id)} <ChevronRight size={11} />
                     </a>
                     <Status
@@ -365,12 +381,7 @@ export function LineageView({
           </span>
         </div>
       </div>
-      {selected && (
-        <CheckpointInspector
-          checkpoint={data.checkpoints.find((c) => c.id === selected)}
-          data={data}
-        />
-      )}
+      {selected && <SelectedCheckpoint key={selected} id={selected} data={data} />}
       <div className="champion-history">
         <Crown size={14} />
         <span>Champion history</span>
@@ -394,6 +405,34 @@ export function LineageView({
       </div>
     </section>
   )
+}
+
+function SelectedCheckpoint({ id, data }: { id: string; data: DashboardData }) {
+  const [checkpoint, setCheckpoint] = useState<CheckpointDetail>()
+  const [error, setError] = useState<string>()
+  useEffect(() => {
+    const controller = new AbortController()
+    readCheckpoint(id, controller.signal)
+      .then((value) => {
+        if (!controller.signal.aborted) {
+          setCheckpoint(value)
+          setError(undefined)
+        }
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted)
+          setError(err instanceof Error ? err.message : 'Could not load checkpoint.')
+      })
+    return () => controller.abort()
+  }, [id, data])
+  if (error)
+    return (
+      <div role="alert" className="error-banner">
+        {error}
+      </div>
+    )
+  if (!checkpoint) return <div role="status">Loading checkpoint…</div>
+  return <CheckpointInspector checkpoint={checkpoint} data={data} />
 }
 
 function CheckpointInspector({
@@ -431,7 +470,10 @@ function CheckpointInspector({
         <span className="muted">Challenge score</span>
         <strong>{challenge ? scoreLabel(challenge) : '—'}</strong>
       </div>
-      <a className="button" href={`#checkpoint-${checkpoint.id}`}>
+      <a
+        className="button"
+        href={pageHref('checkpoints', location.search, { kind: 'checkpoint', id: checkpoint.id })}
+      >
         View evidence <ArrowDownToLine size={14} />
       </a>
     </div>
@@ -501,7 +543,7 @@ function Sparkline({ samples, metric, name }: { samples: Metrics; metric: string
   )
 }
 
-export function AttemptsView({ data }: { data: DashboardData }) {
+export function AttemptsView({ data }: { data: AttemptsData }) {
   const attempts = [...data.attempts].sort(
     (a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id),
   )
@@ -532,7 +574,7 @@ function AttemptCard({
 }: {
   attempt: AttemptDetail
   index: number
-  data: DashboardData
+  data: AttemptsData
 }) {
   const progress = Math.max(
     0,
@@ -544,14 +586,6 @@ function AttemptCard({
     ),
   )
   const metrics = data.metrics[attempt.id]
-  const decisions = [
-    ...new Map(
-      data.evaluations
-        .flatMap((e) => e.decisions.items)
-        .filter((d) => d.attempt_id === attempt.id)
-        .map((d) => [d.id, d]),
-    ).values(),
-  ]
   return (
     <article className="panel attempt-card" id={`attempt-${attempt.id}`}>
       <div className="attempt-top">
@@ -637,20 +671,9 @@ function AttemptCard({
       )}
       {attempt.error && <p className="inline-error">{attempt.error}</p>}
       <div className="attempt-details">
-        {decisions.length > 0 && (
-          <div className="decision-strip">
-            {decisions
-              .sort((a, b) => a.created_at.localeCompare(b.created_at))
-              .map((d) => (
-                <div key={d.id}>
-                  <CheckpointLink id={d.checkpoint_id} data={data} />
-                  <span>{label(d.stage)}</span>
-                  <Status value={d.result} />
-                  {d.reason && <span className="muted">{d.reason}</span>}
-                </div>
-              ))}
-          </div>
-        )}
+        <a href={pageHref('evaluations', location.search)}>
+          View evaluation decisions <ArrowUpRight size={12} />
+        </a>
         <JsonDetails
           title="Training configuration & provenance"
           value={{ attempt_id: attempt.id, ...attempt.config }}
@@ -744,7 +767,12 @@ export function CheckpointsView({
                   <td>
                     {screening ? (
                       <>
-                        <a href={`#evaluation-${screening.id}`}>
+                        <a
+                          href={pageHref('evaluations', location.search, {
+                            kind: 'evaluation',
+                            id: screening.id,
+                          })}
+                        >
                           <Score
                             stats={screening.aggregate?.overall}
                             partial={screening.aggregate_is_partial}
@@ -761,7 +789,12 @@ export function CheckpointsView({
                   <td>
                     {challenge ? (
                       <>
-                        <a href={`#evaluation-${challenge.id}`}>
+                        <a
+                          href={pageHref('evaluations', location.search, {
+                            kind: 'evaluation',
+                            id: challenge.id,
+                          })}
+                        >
                           <Score
                             stats={challenge.aggregate?.overall}
                             partial={challenge.aggregate_is_partial}
@@ -974,12 +1007,22 @@ function EvaluationCard({
               </div>
               <div className="decision-links">
                 {d.candidate_evaluation_id && (
-                  <a href={`#evaluation-${d.candidate_evaluation_id}`}>
+                  <a
+                    href={pageHref('evaluations', location.search, {
+                      kind: 'evaluation',
+                      id: d.candidate_evaluation_id,
+                    })}
+                  >
                     Candidate evaluation <ArrowUpRight size={12} />
                   </a>
                 )}
                 {d.champion_evaluation_id && (
-                  <a href={`#evaluation-${d.champion_evaluation_id}`}>
+                  <a
+                    href={pageHref('evaluations', location.search, {
+                      kind: 'evaluation',
+                      id: d.champion_evaluation_id,
+                    })}
+                  >
                     Champion baseline <ArrowUpRight size={12} />
                   </a>
                 )}
