@@ -29,6 +29,26 @@ async function mockApi(page: Page, { data, experiment } = fixture()) {
   return paths
 }
 
+test('keeps lineage spacing compact after a save five episodes later', async ({ page }) => {
+  const sample = fixture()
+  const checkpoints = sample.data.lineage.checkpoints.items
+  checkpoints.push({
+    ...checkpoints.find((checkpoint) => checkpoint.id === 'tail')!,
+    id: 'interrupted-save',
+    episode: 13505,
+    save_sequence: 13505,
+  })
+  await mockApi(page, sample)
+  await page.goto('/lineage')
+  await expect(page.locator('.checkpoint-node')).toHaveCount(6)
+  const canvas = await page.locator('.graph-canvas').boundingBox()
+  expect(canvas!.width).toBeLessThan(3000)
+  const previous = await page.locator('[data-checkpoint-id="tail"]').boundingBox()
+  const nearby = await page.locator('[data-checkpoint-id="interrupted-save"]').boundingBox()
+  expect(nearby!.x - previous!.x).toBeLessThan(20)
+  expect(nearby!.y).toBeGreaterThanOrEqual(previous!.y + previous!.height)
+})
+
 test('explains the rejection before the detailed checkpoint results', async ({ page }) => {
   await mockApi(page, rejectedChallengeFixture())
   await page.goto('/evaluations?checkpoint=child')

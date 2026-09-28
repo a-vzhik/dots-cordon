@@ -32,21 +32,28 @@ export function layoutLineage(lineage: Lineage, zoom = 1) {
   const min = episodes.length ? Math.min(...episodes) : 0
   const max = episodes.length ? Math.max(...episodes) : min + 1000
   const distinct = [...new Set(nodes.map((n) => n.episode))].sort((a, b) => a - b)
-  const smallestGap = distinct.slice(1).reduce((gap, n, i) => Math.min(gap, n - distinct[i]), 250)
-  const scale = Math.max(0.8, (nodeWidth + 35) / Math.max(1, smallestGap)) * zoom
+  const gaps = distinct
+    .slice(1)
+    .map((episode, i) => episode - distinct[i])
+    .sort((a, b) => a - b)
+  // An interrupted run may save only a few episodes after a regular checkpoint.
+  // Use typical spacing, then stack nearby cards locally instead of stretching every lane.
+  const typicalGap = gaps[Math.floor(gaps.length / 2)] ?? 250
+  const scale = Math.max(0.8, (nodeWidth + 35) / Math.max(1, typicalGap)) * zoom
   const x = (episode: number) => 40 + (episode - min) * scale
   const lanes: Lane[] = []
   const positions: PositionedNode[] = []
   let top = 62
   const placeLane = (attempt: Attempt | null, laneNodes: CheckpointNode[], index: number) => {
-    const stacks = new Map<number, number>()
-    let depth = 1
-    laneNodes.forEach((checkpoint) => {
-      const stack = stacks.get(checkpoint.episode) ?? 0
-      stacks.set(checkpoint.episode, stack + 1)
-      depth = Math.max(depth, stack + 1)
-      positions.push({ checkpoint, x: x(checkpoint.episode), y: top + stack * (nodeHeight + 12) })
-    })
+    const rowEnds: number[] = []
+    for (const checkpoint of [...laneNodes].sort((a, b) => a.episode - b.episode)) {
+      const left = x(checkpoint.episode)
+      const freeRow = rowEnds.findIndex((right) => left >= right + 12)
+      const stack = freeRow === -1 ? rowEnds.length : freeRow
+      rowEnds[stack] = left + nodeWidth
+      positions.push({ checkpoint, x: left, y: top + stack * (nodeHeight + 12) })
+    }
+    const depth = Math.max(1, rowEnds.length)
     const height = laneHeight + (depth - 1) * (nodeHeight + 12)
     lanes.push({ attempt, number: index, y: top, height })
     top += height

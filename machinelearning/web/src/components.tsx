@@ -907,7 +907,7 @@ export function EvaluationsView({
     .filter(
       (checkpoint) => !selectedAttempt || (checkpoint.attempt_id ?? 'imported') === selectedAttempt,
     )
-    .sort((a, b) => a.episode - b.episode || a.id.localeCompare(b.id))
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
   const checkpointIds = new Set(checkpoints.map((checkpoint) => checkpoint.id))
   const selectedCheckpoint = data.checkpoints.find((checkpoint) => checkpoint.id === selected)
   const evaluations = data.evaluations
