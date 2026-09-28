@@ -1,6 +1,7 @@
 import copy
 import signal
 
+import numpy as np
 import pytest
 import torch
 
@@ -43,6 +44,77 @@ def assert_equal(actual, expected):
             assert_equal(left, right)
     else:
         assert actual == expected
+
+
+def test_resume_seed_preserves_learner_and_replaces_only_rng(setup, tmp_path):
+    source = tmp_path / "source"
+    before = load(source)
+    target = tmp_path / "reseeded"
+    args = arguments(target, "--resume", str(source / "search-latest.pt"),
+                     "--resume-seed", "42", "--episodes", "1")
+    assert search_train.run(args) == 0
+    after = load(target)
+    for key in ("online", "optimizer", "replay", "training_state", "initialization"):
+        assert_equal(after[key], before[key])
+    assert after["config"]["resume_seed"] == 42
+    assert after["rng_state"]["numpy"] == np.random.default_rng(42).bit_generator.state
+    assert after["rng_state"]["numpy"] != before["rng_state"]["numpy"]
+    with torch.random.fork_rng():
+        torch.manual_seed(42)
+        assert_equal(after["rng_state"]["torch"], torch.get_rng_state())
+
+
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_reseeded_resume_recovery_matches_uninterrupted(setup, tmp_path, monkeypatch, fail_at):
+    url, request = setup
+    with AuditService(url) as audit:
+        experiment = audit.ensure_experiment("rounds", {"rows": 2, "columns": 2, "max_turns": 0})
+        source = audit.import_checkpoint(experiment["id"], tmp_path / "source/search-latest.pt")
+    request["source"].update(mode="resume", checkpoint_id=source["id"], resume_seed=42)
+    full = copy.deepcopy(request)
+    full.update(operation_id="full-reseeded")
+    full["config"]["checkpoint_dir"] = str(tmp_path / "full-reseeded")
+    training.run_request(full, url)
+    collect = search_train.collect_episode
+    calls = 0
+
+    def fail(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == fail_at:
+            raise RuntimeError("engine disconnected")
+        return collect(*args, **kwargs)
+
+    monkeypatch.setattr(search_train, "collect_episode", fail)
+    with pytest.raises(RuntimeError, match="engine disconnected"):
+        training.run_request(request, url)
+    monkeypatch.setattr(search_train, "collect_episode", collect)
+    result = training.run_request(request, url)
+    assert result["status"] == "completed"
+    actual, expected = load(tmp_path / "round"), load(tmp_path / "full-reseeded")
+    for key in ("online", "optimizer", "replay", "rng_state", "training_state"):
+        assert_equal(actual[key], expected[key])
+    assert training.run_request(request, url) == result
+
+
+@pytest.mark.parametrize("seed", [-1, 2**64, True, None, "42"])
+def test_resume_seed_rejects_invalid_source_values(setup, seed):
+    _, request = setup
+    request["source"].update(mode="resume", resume_seed=seed)
+    with pytest.raises(ValueError, match="resume_seed"):
+        training.request_arguments(request)
+
+
+def test_resume_seed_requires_resume_source(setup, tmp_path):
+    _, request = setup
+    request["source"]["resume_seed"] = 42
+    with pytest.raises(ValueError, match="resume_seed"):
+        training.request_arguments(request)
+    for extra in [("--resume-seed", "42"),
+                  ("--resume", "checkpoint.pt", "--resume-seed", "-1"),
+                  ("--resume", "checkpoint.pt", "--resume-seed", str(2**64))]:
+        with pytest.raises(SystemExit):
+            arguments(tmp_path, *extra)
 
 
 def test_round_boundaries_preserve_entire_learner_and_disable_evaluation(setup, tmp_path, monkeypatch):

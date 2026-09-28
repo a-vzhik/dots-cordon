@@ -71,6 +71,10 @@ def parse_args(arguments=None):
         help="restore a search checkpoint, including replay and RNG",
     )
     parser.add_argument(
+        "--resume-seed", type=int,
+        help="with --resume, replace saved training RNG with this seed; preserve all other learner state",
+    )
+    parser.add_argument(
         "--bootstrap-champion", action="store_true",
         help="initialize the target champion from a transferred episode-zero search checkpoint",
     )
@@ -106,6 +110,11 @@ def parse_args(arguments=None):
     parser.add_argument("--opening-random-moves", type=int, default=4)
     parser.add_argument("--rpc-timeout", type=float, default=10)
     args = parser.parse_args(arguments)
+    if args.resume_seed is not None:
+        if not args.resume:
+            parser.error("--resume-seed requires --resume")
+        if not 0 <= args.resume_seed < 2**64:
+            parser.error("--resume-seed must be between 0 and 2**64 - 1")
     if args.bootstrap_champion and (args.no_audit or not (args.initialize_from or args.resume)):
         parser.error("--bootstrap-champion requires auditing and a transfer or episode-zero resume")
     for key in (
@@ -302,6 +311,9 @@ def run(args):
             replay.restore(payload["replay"])
             random.bit_generator.state = payload["rng_state"]["numpy"]
             torch.set_rng_state(payload["rng_state"]["torch"].cpu())
+            if args.resume_seed is not None:
+                random = np.random.default_rng(args.resume_seed)
+                torch.manual_seed(args.resume_seed)
             state = TrainingState(**payload["training_state"])
             # Audited diagnostics retain their immutable initial opponent across
             # process boundaries, even when the supplied champion alias changes.

@@ -42,10 +42,16 @@ def request_arguments(request, database_url=None):
     if type(request["target_episode"]) is not int or request["target_episode"] <= 0:
         raise ValueError("target_episode must be a positive absolute episode")
     source = request["source"]
-    if (not isinstance(source, dict) or set(source) != {"mode", "checkpoint_id"}
+    if (not isinstance(source, dict) or set(source) not in (
+            {"mode", "checkpoint_id"}, {"mode", "checkpoint_id", "resume_seed"})
             or not isinstance(source["mode"], str) or source["mode"] not in {"resume", "initialize"}
             or not isinstance(source["checkpoint_id"], str) or not source["checkpoint_id"]):
         raise ValueError("source requires mode resume/initialize and an immutable checkpoint_id")
+    if "resume_seed" in source and (
+        source["mode"] != "resume" or type(source["resume_seed"]) is not int
+        or not 0 <= source["resume_seed"] < 2**64
+    ):
+        raise ValueError("source.resume_seed requires resume mode and an integer between 0 and 2**64 - 1")
     config = request["config"]
     if not isinstance(config, dict):
         raise ValueError("config must be an object containing the complete training configuration")
@@ -78,6 +84,8 @@ def request_arguments(request, database_url=None):
             f"checkpoint:{source['checkpoint_id']}"]
     if database_url:
         argv.extend(["--database-url", database_url])
+    if "resume_seed" in source:
+        argv.extend(["--resume-seed", str(source["resume_seed"])])
     for key, value in sorted(config.items()):
         if key == "bootstrap_champion":
             if value:
@@ -151,6 +159,9 @@ def run_request(request, database_url=None):
             if checkpoint:
                 args.resume = Path(f"checkpoint:{checkpoint['id']}")
                 args.initialize_from = None
+                # The initial checkpoint already contains the reseeded stream.
+                # Recovery must continue it, never restart it a second time.
+                args.resume_seed = None
                 args.bootstrap_champion = bool(args.bootstrap_champion and checkpoint["episode"] == 0)
             audit.update_operation(request["operation_id"], status="running")
             try:

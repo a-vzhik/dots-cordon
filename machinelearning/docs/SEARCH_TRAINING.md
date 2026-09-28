@@ -127,6 +127,20 @@ effective settings. Resume retains network, optimizer, replay, RNG and counters.
 The promoted evaluation checkpoint is a separate audit record: learner continuity
 always uses the original training checkpoint even when a candidate is rejected.
 
+To branch from a checkpoint with fresh training randomness, add an optional
+`resume_seed` to the resume source (also supported by the bounded training unit):
+
+```json
+"source": {"mode": "resume", "checkpoint_id": "LEARNER_CHECKPOINT_UUID", "resume_seed": 20260923}
+```
+
+This replaces the saved NumPy and Torch RNG states while preserving weights,
+optimizer, replay and counters. The supervisor applies it only to the first
+round. Later rounds and retries after a checkpoint commit restore the saved
+stream without reseeding. Omit it for exact continuation. Use a new `run_id`
+when changing a request that has already started; merely changing
+`training_config.seed` does not override a resumed checkpoint's RNG.
+
 ### Stop and recover the supervisor
 
 SIGINT/Ctrl-C and SIGTERM are forwarded to the active child. The supervisor waits
@@ -305,6 +319,12 @@ when resuming. Changing replay capacity truncates older examples if necessary.
 CPU tests verify an uninterrupted run and a resumed run produce identical
 weights and replay when settings match. Bitwise agreement across devices is
 not promised.
+
+For a fresh random branch, add `--resume-seed 20260923` alongside `--resume`.
+The seed must be an integer from 0 through `2**64 - 1`. This changes only the
+training RNG; evaluation seeds remain separate. Subsequent direct CLI resumes
+should omit `--resume-seed` to continue the saved stream. The bounded training
+unit and supervisor handle this automatically on recovery and later rounds.
 
 Checkpoints are `search-NNNNNNN.pt` and `search-latest.pt`. Saved files include
 replay, so they are larger than the old DQN checkpoints (roughly 24 MB of replay

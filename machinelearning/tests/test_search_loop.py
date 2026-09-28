@@ -83,6 +83,37 @@ def test_real_subprocess_round_order_and_learner_continuity(setup, monkeypatch, 
     assert search_loop.run_request(request, url, children=FixtureChildren()) == response
     assert entries(trace) == history
 
+def test_resume_seed_applies_only_to_first_round_and_preserves_continuity(setup):
+    url, request, trace = setup
+    with AuditService(url) as audit:
+        experiment = audit.ensure_experiment("rounds", {"rows": 2, "columns": 2, "max_turns": 0})
+        source_path = resolve_checkpoint_reference("checkpoint:" + request["source"]["checkpoint_id"], audit)
+        source = audit.import_checkpoint(experiment["id"], source_path)
+        audit.bootstrap(experiment["id"], source["id"])
+    request.update(total_episode=3, source=dict(mode="resume", checkpoint_id=source["id"], resume_seed=123))
+    request["training_config"]["bootstrap_champion"] = False
+
+    response = search_loop.run_request(request, url, children=FixtureChildren())
+    assert response["status"] == "completed", response
+    assert [round_["episode"] for round_ in response["rounds"]] == [2, 3]
+    trains = [entry["request"] for entry in entries(trace) if entry["kind"] == "training"]
+    assert len(trains) == 2
+    assert trains[0]["source"] == request["source"]
+    assert trains[1]["source"] == dict(mode="resume", checkpoint_id=response["rounds"][0]["learner_checkpoint_id"])
+
+    full = dict(version=1, operation_id="uninterrupted-seeded-resume", experiment=request["experiment"],
+                source=copy.deepcopy(request["source"]), target_episode=3,
+                config=copy.deepcopy(request["training_config"]))
+    full["config"]["checkpoint_dir"] = str(Path(request["work_dir"]) / "full")
+    direct = training.run_request(full, url)
+    assert direct["status"] == "completed", direct
+    with AuditService(url) as audit:
+        actual, _ = read_checkpoint(resolve_checkpoint_reference("checkpoint:" + response["learner_checkpoint_id"], audit), map_location="cpu")
+        expected, _ = read_checkpoint(resolve_checkpoint_reference("checkpoint:" + direct["checkpoint_id"], audit), map_location="cpu")
+        for key in ("online", "optimizer", "replay", "rng_state", "training_state"):
+            assert_equal(actual[key], expected[key])
+
+
 @pytest.mark.parametrize("kind", ["training", "evaluation", "promotion"])
 def test_recover_child_commit_before_completion_or_ack(setup, monkeypatch, kind):
     url, request, trace = setup
