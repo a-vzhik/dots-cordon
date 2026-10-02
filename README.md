@@ -152,3 +152,46 @@ ONNXRUNTIME_SHARED_LIBRARY_PATH="$PWD/machinelearning/runtime/libonnxruntime.1.2
 Without the environment variable, native runtime tests skip; encoding and
 move-selection tests still run. Regenerate fixtures with
 `machinelearning/.venv/bin/python inference/testdata/generate.py`.
+
+## Native desktop runner
+
+The Ebitengine runner uses a local 10-row × 15-column game. You play player 0
+and move first; player 1 uses a required exported ONNX policy. Export a model
+using the CLI runner directions above (the same `dots-cordon-export-policy`
+command supports this board). Older fixed-size exports must be re-exported if
+not already 10×15.
+
+Build or run from the repository root:
+
+```sh
+go build -o /tmp/dots-cordon-desktop ./runners/ebiten
+go run ./runners/ebiten \
+  --player1-weights=machinelearning/checkpoints/search-warm-7x7/policy-champion.onnx \
+  --onnxruntime=machinelearning/runtime/libonnxruntime.1.29.0.dylib
+# The built binary accepts the same flags:
+/tmp/dots-cordon-desktop --player1-weights=exported.onnx
+```
+
+Building requires CGO enabled, a C compiler, and native Ebitengine desktop
+platform dependencies. Gameplay requires the ONNX Runtime shared library
+matching the pinned Go wrapper; see the runtime installation directions above.
+Use `--onnxruntime` or set `ONNXRUNTIME_SHARED_LIBRARY_PATH`. The model is loaded
+once and its board compatibility checked before opening the game window.
+Inference runs on one background worker; the UI applies completed moves.
+Closing the window waits for any in-flight native inference before releasing
+the model. An inference error stops play.
+
+This runner is native desktop only. A future browser runner needs its own
+inference adapter; the session/controller contract has no Ebitengine or native
+runtime dependency. No browser build is provided here.
+
+Run desktop tests, including the optional real-model integration test:
+
+```sh
+DOTS_CORDON_NATIVE_TEST_MODEL="$PWD/machinelearning/checkpoints/search-warm-7x7/policy-champion.onnx" \
+ONNXRUNTIME_SHARED_LIBRARY_PATH="$PWD/machinelearning/runtime/libonnxruntime.1.29.0.dylib" \
+  go test -timeout=10s ./runners/ebiten/...
+```
+
+Without both environment variables, the real-model integration test skips.
+Desktop view tests may require a graphical session.
